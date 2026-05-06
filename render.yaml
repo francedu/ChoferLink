@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: choferlink
+    env: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_CLIENT
+        value: postgres
+      - key: DATABASE_URL
+        fromDatabase:
+          name: choferlink-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: BILLING_MODE
+        value: payment
+      - key: SEED_DEMO
+        value: false
+
+databases:
+  - name: choferlink-db
+    plan: free

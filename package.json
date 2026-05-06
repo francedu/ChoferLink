@@ -1,0 +1,19 @@
+{
+  "name": "choferlink-mvp",
+  "version": "3.0.0",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.18.3",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.13.3"
+  },
+  "engines": {
+    "node": "20.x",
+    "npm": "10.x"
+  }
+}

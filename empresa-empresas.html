@@ -1,0 +1,25 @@
+<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Empresas | ChoferLink</title><link rel="stylesheet" href="/styles.css?v=routes2"></head><body><header class="navbar"><div class="brand">🚚 ChoferLink <span>Panel Empresa</span></div><nav><a href="/">Inicio</a><a href="/empresa/perfiles">Perfiles</a><a href="/empresa/trabajos">Trabajos</a><a href="/registro">Registrarse</a></nav><div id="sessionBox" class="session-box"></div></header><main class="panel wide" id="companyLoginPanel"><div class="two-col"><div><p class="eyebrow">Acceso</p><h2>Entrar al panel empresa</h2><form id="loginForm" class="form compact"><input name="email" type="email" placeholder="Email empresa" required><input name="password" type="password" placeholder="Contraseña" required><button class="btn primary" type="submit">Iniciar sesión</button></form><p id="loginMsg" class="msg"></p></div><div class="panel-soft"><h3>Acceso para empresas</h3><p>Ingresa para desbloquear contactos, guardar favoritos, publicar ofertas y gestionar postulaciones.</p><a class="btn small" href="/registro">Crear cuenta</a></div></div></main><main id="companyDashboard" class="hidden dashboard-wrap company-route-page"><section class="panel wide dashboard-hero"><div><p class="eyebrow">Empresas</p><h1>Directorio de empresas</h1><p>Listado completo separado del dashboard. Desde aquí también puedes editar la ficha de tu empresa.</p></div><div class="dashboard-actions"><button class="btn primary" onclick="openCompanyEdit()">Editar datos empresa</button><a class="btn" href="/empresa">Dashboard</a></div></section><nav class="dashboard-nav routes-nav" aria-label="Navegación del panel">
+<a href="/empresa">Dashboard</a><a href="/empresa/perfiles">Perfiles</a><a href="/empresa/trabajos">Trabajos</a><a href="/empresa/empresas">Empresas</a><a href="/empresa/matches">Matches</a><a href="/empresa/postulaciones">Postulaciones</a><a href="/empresa/suscripcion">Suscripción</a>
+</nav><section class="panel wide"><div class="section-head"><div><h2>Empresas registradas</h2><p class="section-intro">Buscar por nombre, rubro o ubicación.</p></div><button class="btn small" onclick="loadCompanies()">Actualizar</button></div><div class="filters"><input id="companyQ" placeholder="Buscar empresa, rubro o región"><button class="btn" onclick="loadCompanies()">Buscar</button></div><div id="companiesList" class="companies-grid"></div></section></main><div class="company-edit-overlay hidden" id="companyEditOverlay" aria-hidden="true">
+  <div class="company-edit-backdrop" onclick="closeCompanyEdit()"></div>
+  <section class="company-edit-drawer" role="dialog" aria-modal="true" aria-labelledby="companyEditTitle">
+    <div class="drawer-head">
+      <div><p class="eyebrow">Perfil público</p><h2 id="companyEditTitle">Editar datos de empresa</h2><p class="section-intro">Actualiza estos datos cuando lo necesites. Alimentan tu ficha pública y reputación.</p></div>
+      <button class="btn small ghost" type="button" onclick="closeCompanyEdit()">Cerrar</button>
+    </div>
+    <form id="companyEditForm" class="form dashboard-form">
+      <input name="nombre" placeholder="Nombre comercial" required>
+      <input name="razon_social" placeholder="Razón social">
+      <input name="rut_empresa" placeholder="RUT empresa" required>
+      <select name="region" class="region-select" required></select>
+      <input name="comuna" placeholder="Comuna" required>
+      <select name="tipo_empresa" required><option value="">Rubro</option><option>Transporte</option><option>Logística</option><option>Minería</option><option>Puerto / contenedores</option><option>Forestal</option><option>Construcción</option><option>Retail / distribución</option><option>Agroindustria</option><option>Otro</option></select>
+      <input name="necesidad" placeholder="Qué necesitas contratar" required>
+      <input name="whatsapp" placeholder="WhatsApp" required>
+      <select name="tamano_empresa"><option value="">Tamaño empresa</option><option>Pequeña</option><option>Mediana</option><option>Grande</option></select>
+      <input name="sitio_web" placeholder="Sitio web">
+      <textarea name="descripcion" placeholder="Descripción de la empresa"></textarea>
+      <div class="drawer-actions"><button class="btn ghost" type="button" onclick="closeCompanyEdit()">Cancelar</button><button class="btn primary" type="submit">Guardar cambios</button></div>
+    </form><p id="companyEditMsg" class="msg"></p>
+  </section>
+</div><footer>ChoferLink · Panel empresa</footer><script src="/app.js?v=routes2"></script></body></html>
