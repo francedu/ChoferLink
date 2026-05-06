@@ -458,9 +458,9 @@ async function listPendingDocuments(){
 }
 async function adminSummary(){
   const companies=await query('SELECT COUNT(*) total FROM companies');
-  const verifiedCompanies=await query('SELECT COUNT(*) total FROM companies WHERE verificada=1 OR verificada=TRUE');
+  const verifiedCompanies=await query('SELECT COUNT(*) total FROM companies WHERE verificada IS TRUE');
   const profiles=await query('SELECT COUNT(*) total FROM profiles');
-  const verifiedProfiles=await query('SELECT COUNT(*) total FROM profiles WHERE verificado=1 OR verificado=TRUE');
+  const verifiedProfiles=await query('SELECT COUNT(*) total FROM profiles WHERE verificado IS TRUE');
   const pendingDocs=await query("SELECT COUNT(*) total FROM profiles WHERE documento_estado='pendiente' AND (documento_licencia<>'' OR hoja_vida_conductor<>'')");
   const rejectedDocs=await query("SELECT COUNT(*) total FROM profiles WHERE documento_estado='rechazado'");
   const jobs=await query('SELECT COUNT(*) total FROM jobs');
@@ -470,8 +470,8 @@ async function adminSummary(){
 async function adminListCompanies(f={}){
   const where=[],params=[];
   if(f.q){ params.push('%'+String(f.q).toLowerCase()+'%'); where.push('(LOWER(nombre) LIKE $'+params.length+' OR LOWER(email) LIKE $'+params.length+' OR LOWER(rut_empresa) LIKE $'+params.length+' OR LOWER(region) LIKE $'+params.length+')'); }
-  if(f.estado==='verificadas') where.push('(verificada=1 OR verificada=TRUE)');
-  if(f.estado==='pendientes') where.push('(verificada=0 OR verificada=FALSE OR verificada IS NULL)');
+  if(f.estado==='verificadas') where.push('(verificada IS TRUE)');
+  if(f.estado==='pendientes') where.push('(verificada IS NOT TRUE)');
   const rows=await query('SELECT c.id,c.nombre,c.razon_social,c.rut_empresa,c.region,c.comuna,c.tipo_empresa,c.necesidad,c.email,c.whatsapp,c.plan,c.verificada,c.rating,c.tamano_empresa,c.sitio_web,c.descripcion,c.documento_empresa,c.created_at,COUNT(DISTINCT j.id) jobs_count,COUNT(DISTINCT a.id) applications_count FROM companies c LEFT JOIN jobs j ON j.company_id=c.id LEFT JOIN applications a ON a.job_id=j.id '+(where.length?'WHERE '+where.join(' AND '):'')+' GROUP BY c.id ORDER BY c.id DESC LIMIT 300',params);
   return rows.map(r=>({...r,verificada:Boolean(r.verificada),jobs_count:Number(r.jobs_count||0),applications_count:Number(r.applications_count||0)}));
 }
