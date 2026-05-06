@@ -32,3 +32,7 @@
 - Se añadieron cabeceras de seguridad y CSP básica.
 - La subida de documentos valida tipo MIME y firma/magic bytes.
 - La data demo ya no se siembra automáticamente; requiere `SEED_DEMO=true`.
+
+
+## Validación de RUT empresa
+Esta versión valida el RUT de empresa en frontend y backend, normaliza el formato a `12345678-9` y crea un índice único para evitar que dos empresas usen el mismo RUT.
