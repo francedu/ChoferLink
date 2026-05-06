@@ -39,10 +39,12 @@ app.use('/assets', express.static(path.join(__dirname,'assets'), { dotfiles:'ign
 app.get('/styles.css', (_req,res)=>res.sendFile(path.join(__dirname,'styles.css')));
 app.get('/app.js', (_req,res)=>res.sendFile(path.join(__dirname,'app.js')));
 const uploadDir = path.join(__dirname, 'uploads', 'drivers');
+const companyUploadDir = path.join(__dirname, 'uploads', 'companies');
 fs.mkdirSync(uploadDir, { recursive: true });
+fs.mkdirSync(companyUploadDir, { recursive: true });
 const MAX_DOC_SIZE_MB = 2;
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
+  destination: (_req, file, cb) => cb(null, file.fieldname === 'documento_empresa_archivo' ? companyUploadDir : uploadDir),
   filename: (_req, file, cb) => {
     const safe = file.originalname.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
     cb(null, `${Date.now()}-${Math.random().toString(16).slice(2)}-${safe}`);
@@ -56,8 +58,10 @@ const uploadDriverDocs = multer({
       ? ['application/pdf','image/jpeg','image/png'].includes(file.mimetype)
       : file.fieldname === 'hoja_vida_archivo'
         ? file.mimetype === 'application/pdf'
-        : true;
-    if (!okByField) return cb(new Error('Formato no permitido. Licencia: PDF/JPG/PNG. Hoja de vida: PDF.'));
+        : file.fieldname === 'documento_empresa_archivo'
+          ? ['application/pdf','image/jpeg','image/png'].includes(file.mimetype)
+          : true;
+    if (!okByField) return cb(new Error('Formato no permitido. Licencia: PDF/JPG/PNG. Hoja de vida: PDF. Documento empresa: PDF/JPG/PNG.'));
     cb(null, true);
   }
 });
@@ -74,6 +78,7 @@ function isAllowedUploadedFile(file){
   const isJpg = buf.length > 3 && buf[0]===0xff && buf[1]===0xd8 && buf[buf.length-2]===0xff && buf[buf.length-1]===0xd9;
   if (file.fieldname === 'hoja_vida_archivo') return file.mimetype === 'application/pdf' && isPdf;
   if (file.fieldname === 'licencia_archivo') return (file.mimetype === 'application/pdf' && isPdf) || (file.mimetype === 'image/png' && isPng) || (file.mimetype === 'image/jpeg' && isJpg);
+  if (file.fieldname === 'documento_empresa_archivo') return (file.mimetype === 'application/pdf' && isPdf) || (file.mimetype === 'image/png' && isPng) || (file.mimetype === 'image/jpeg' && isJpg);
   return false;
 }
 function attachUploadedDriverDocs(req){
@@ -87,6 +92,14 @@ function attachUploadedDriverDocs(req){
   if (req.body.documento_licencia || req.body.hoja_vida_conductor || req.body.licencia_vencimiento) {
     req.body.documento_estado = 'pendiente';
   }
+}
+
+const uploadCompanyDoc = uploadDriverDocs.single('documento_empresa_archivo');
+function attachUploadedCompanyDoc(req){
+  const file = req.file;
+  if (!file) return;
+  if (!isAllowedUploadedFile(file)) { try { fs.unlinkSync(file.path); } catch (_) {} throw new Error('Archivo rechazado: el contenido no coincide con el formato permitido.'); }
+  req.body.documento_empresa = `/uploads/companies/${file.filename}`;
 }
 
 const companyRouteFiles = {
@@ -163,7 +176,7 @@ function formatRut(rut){ const value=cleanRut(rut); return value?`${value.slice(
 function validateRut(rut){ const value=cleanRut(rut); if(!/^\d{7,8}[0-9K]$/.test(value)) return false; const body=value.slice(0,-1), dv=value.slice(-1); if(/^(\d)\1+$/.test(body)) return false; let sum=0,m=2; for(let i=body.length-1;i>=0;i--){ sum += Number(body[i])*m; m = m===7 ? 2 : m+1; } const calc=11-(sum%11); const expected=calc===11?'0':calc===10?'K':String(calc); return dv===expected; }
 function normalizeBody(body){ for(const k of Object.keys(body||{})){ if(typeof body[k]==='string') body[k]=clean(body[k], k==='descripcion'||k==='comment'||k==='mensaje'?800:180); } return body; }
 function validateProfilePayload(b){ normalizeBody(b); if(b.rut && !validateRut(b.rut)) return 'RUT inválido. Usa un formato válido, ej: 12.345.678-5.'; if(b.email && !isEmail(b.email)) return 'Email inválido.'; if(b.whatsapp && !isPhoneCL(b.whatsapp)) return 'WhatsApp inválido. Usa un número válido, ej: +56 9 1234 5678.'; if(b.licencia && !['A2','A3','A4','A5',''].includes(b.licencia)) return 'Licencia inválida.'; for(const t of (b.trucks||[])){ t.patente=clean(t.patente,12).toUpperCase(); if(t.patente && !/^[A-Z]{2,4}[- ]?[0-9]{2,4}$/.test(t.patente)) return `Patente inválida: ${t.patente}`; } return null; }
-function validateCompanyPayload(b){ normalizeBody(b); if(b.rut_empresa){ if(!validateRut(b.rut_empresa)) return 'RUT empresa inválido. Revisa el número y el dígito verificador.'; b.rut_empresa=formatRut(b.rut_empresa); } if(b.email && !isEmail(b.email)) return 'Email inválido.'; if(b.whatsapp && !isPhoneCL(b.whatsapp)) return 'WhatsApp inválido.'; if(b.password && String(b.password).length<6) return 'La clave debe tener al menos 6 caracteres.'; return null; }
+function validateCompanyPayload(b){ normalizeBody(b); if(b.rut_empresa){ if(!validateRut(b.rut_empresa)) return 'RUT empresa inválido. Revisa el número y el dígito verificador.'; if(!isCompanyRut(b.rut_empresa)) return 'Debes ingresar un RUT de empresa/persona jurídica, no un RUT personal.'; b.rut_empresa=formatRut(b.rut_empresa); } if(!String(b.razon_social||'').trim()) return 'La razón social es obligatoria para verificar empresas.'; if(b.razon_social && !hasCompanyLegalName(b.razon_social)) return 'La razón social debe corresponder a una empresa, por ejemplo SpA, Ltda., EIRL o S.A.'; if(b.email && !isEmail(b.email)) return 'Email inválido.'; if(b.whatsapp && !isPhoneCL(b.whatsapp)) return 'WhatsApp inválido.'; if(b.password && String(b.password).length<6) return 'La clave debe tener al menos 6 caracteres.'; return null; }
 app.get('/api/health',(req,res)=>res.json({ok:true,database:db.client}));
 app.get('/api/stats',async(req,res)=>res.json(await db.stats()));
 app.get('/api/me',async(req,res)=>res.json({company:await db.getCompanyByToken(bearer(req)),profile:await db.getProfileByToken((req.headers['x-profile-token']||'').toString())}));
@@ -185,7 +198,7 @@ app.get('/api/company-analytics',requireCompany,async(req,res)=>res.json(await d
 
 app.put('/api/company-profile',requireCompany,async(req,res)=>{ try{ const bad=validateCompanyPayload(req.body); if(bad) return res.status(400).json({error:bad}); for(const f of ['nombre','rut_empresa','region','comuna','tipo_empresa','necesidad','whatsapp']) if(!req.body[f]) return res.status(400).json({error:`Falta el campo: ${f}`}); res.json(await db.updateCompanyProfile(req.company.id,req.body)); }catch(e){ const unique=String(e.message||'').includes('UNIQUE')||String(e.code||'')==='23505'; res.status(unique?409:500).json({error:unique?'Ya existe una empresa registrada con ese RUT.':'No se pudo actualizar el perfil.'}); }});
 app.post('/api/company-login',rateLimit('login',8,10*60*1000),async(req,res)=>{ const s=await db.loginCompany(req.body.email,req.body.password); if(!s) return res.status(401).json({error:'Email o contraseña incorrectos.'}); res.json(s); });
-app.post('/api/companies',rateLimit('companies',20,60*60*1000),async(req,res)=>{ try{ const bad=validateCompanyPayload(req.body); if(bad) return res.status(400).json({error:bad}); for(const f of ['nombre','rut_empresa','region','comuna','tipo_empresa','necesidad','email','whatsapp','password']) if(!req.body[f]) return res.status(400).json({error:`Falta el campo: ${f}`}); res.status(201).json(await db.createCompany(req.body)); }catch(e){ const msg=String(e.message||''); const code=String(e.code||''); const unique=msg.includes('UNIQUE')||code==='23505'; const rutDup=unique && msg.includes('rut_empresa'); res.status(unique?409:500).json({error:rutDup?'Ya existe una empresa registrada con ese RUT.':unique?'Ya existe una empresa con ese email o RUT.':'No se pudo registrar la empresa.'}); }});
+app.post('/api/companies',rateLimit('companies',20,60*60*1000),uploadCompanyDoc,uploadErrorHandler,async(req,res)=>{ try{ attachUploadedCompanyDoc(req); const bad=validateCompanyPayload(req.body); if(bad) return res.status(400).json({error:bad}); for(const f of ['nombre','razon_social','rut_empresa','region','comuna','tipo_empresa','necesidad','email','whatsapp','password']) if(!req.body[f]) return res.status(400).json({error:`Falta el campo: ${f}`}); if(!req.body.documento_empresa) return res.status(400).json({error:'Debes subir un documento de verificación de empresa en PDF, JPG o PNG.'}); req.body.verificada=false; res.status(201).json(await db.createCompany(req.body)); }catch(e){ const msg=String(e.message||''); const code=String(e.code||''); const unique=msg.includes('UNIQUE')||code==='23505'; const rutDup=unique && msg.includes('rut_empresa'); res.status(unique?409:500).json({error:rutDup?'Ya existe una empresa registrada con ese RUT.':unique?'Ya existe una empresa con ese email o RUT.':msg||'No se pudo registrar la empresa.'}); }});
 app.get('/api/companies',async(req,res)=>res.json(await db.listCompanies({q:req.query.q})));
 app.get('/api/companies/:id/public',async(req,res)=>{ try{ const page=await db.getCompanyPublicPage(req.params.id); if(!page) return res.status(404).json({error:'Empresa no encontrada o no disponible.'}); res.json(page); }catch(e){ res.status(500).json({error:'No se pudo cargar el perfil público de la empresa.'}); }});
 app.post('/api/company-plan',requireCompany,async(req,res)=>{
@@ -266,6 +279,7 @@ app.get('/api/admin/pending-documents', requireAdmin, async(_req,res)=>res.json(
 app.patch('/api/admin/profiles/:id/verification', requireAdmin, async(req,res)=>{ try{ const allowed=['pendiente','aprobado','rechazado','vencido']; const estado=req.body.documento_estado; if(estado && !allowed.includes(estado)) return res.status(400).json({error:'Estado documental inválido.'}); res.json(await db.adminUpdateProfileVerification(req.params.id,{verificado:req.body.verificado,documento_estado:estado})); }catch(e){ res.status(500).json({error:'No se pudo actualizar el perfil.'}); }});
 app.patch('/api/admin/companies/:id/verification', requireAdmin, async(req,res)=>{ try{ res.json(await db.adminUpdateCompanyVerification(req.params.id,{verificada:req.body.verificada,plan:req.body.plan})); }catch(e){ res.status(500).json({error:'No se pudo actualizar la empresa.'}); }});
 app.get('/api/admin/profile-document/:id/:kind', requireAdmin, async(req,res)=>{ try{ const doc=await db.adminGetProfileDocument(req.params.id,req.params.kind); if(!doc?.path) return res.status(404).send('Documento no disponible.'); const full=path.join(__dirname, doc.path.replace(/^\//,'')); if(!full.startsWith(path.join(__dirname,'uploads','drivers')) || !fs.existsSync(full)) return res.status(404).send('Documento no encontrado.'); res.sendFile(full); }catch(e){ res.status(500).send('No se pudo abrir el documento.'); }});
+app.get('/api/admin/company-document/:id', requireAdmin, async(req,res)=>{ try{ const doc=await db.adminGetCompanyDocument(req.params.id); if(!doc?.path) return res.status(404).send('Documento no disponible.'); const full=path.join(__dirname, doc.path.replace(/^\//,'')); if(!full.startsWith(path.join(__dirname,'uploads','companies')) || !fs.existsSync(full)) return res.status(404).send('Documento no encontrado.'); res.sendFile(full); }catch(e){ res.status(500).send('No se pudo abrir el documento.'); }});
 app.get('*', (req,res,next)=>{
   if (req.path.startsWith('/api/')) return next();
   res.status(404).sendFile(path.join(__dirname,'index.html'));
