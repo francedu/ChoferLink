@@ -521,6 +521,33 @@ async function adminGetCompanyDocument(id){
   return {path:c.documento_empresa};
 }
 
+
+async function adminDeleteCompany(id){
+  const existing=(await query('SELECT id,nombre,email FROM companies WHERE id=$1',[id]))[0];
+  if(!existing) return null;
+  await query('DELETE FROM company_sessions WHERE company_id=$1',[id]);
+  await query('DELETE FROM saved_searches WHERE company_id=$1',[id]);
+  await query('DELETE FROM favorites WHERE company_id=$1',[id]);
+  await query('DELETE FROM contact_history WHERE company_id=$1',[id]);
+  await query('DELETE FROM notifications WHERE user_type=$1 AND user_id=$2',['company',id]);
+  await query('DELETE FROM events WHERE company_id=$1',[id]);
+  await query('DELETE FROM companies WHERE id=$1',[id]);
+  return existing;
+}
+async function adminDeleteProfile(id){
+  const existing=(await query('SELECT id,nombre,email FROM profiles WHERE id=$1',[id]))[0];
+  if(!existing) return null;
+  await query('DELETE FROM profile_sessions WHERE profile_id=$1',[id]);
+  await query('UPDATE applications SET profile_id=NULL WHERE profile_id=$1',[id]);
+  await query('DELETE FROM favorites WHERE profile_id=$1',[id]);
+  await query('DELETE FROM contact_history WHERE profile_id=$1',[id]);
+  await query('DELETE FROM reviews WHERE reviewer_profile_id=$1',[id]);
+  await query('DELETE FROM notifications WHERE user_type=$1 AND user_id=$2',['profile',id]);
+  await query('DELETE FROM events WHERE profile_id=$1',[id]);
+  await query('DELETE FROM profiles WHERE id=$1',[id]);
+  return existing;
+}
+
 async function adminGetProfileDocument(id,kind){
   const p=(await query('SELECT documento_licencia,hoja_vida_conductor FROM profiles WHERE id=$1',[id]))[0];
   if(!p) return null;
@@ -657,4 +684,4 @@ async function seedIfEmpty(){
   }
   await ensureRichDemoData();
 }
-module.exports={client,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
+module.exports={client,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
