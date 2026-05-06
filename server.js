@@ -5,6 +5,8 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+let nodemailer = null;
+try { nodemailer = require('nodemailer'); } catch (_) { nodemailer = null; }
 const db = require('./db');
 const app = express();
 const port = process.env.PORT || 3000;
@@ -199,13 +201,40 @@ async function confirmFlowToken(token){
 
 function publicBaseUrl(req){ return (process.env.PUBLIC_BASE_URL || process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/,''); }
 function emailVerificationUrl(req,token){ return `${publicBaseUrl(req)}/api/email/verify?token=${encodeURIComponent(token)}`; }
+async function sendEmailViaSmtp({to,subject,html,text}){
+  if(!process.env.SMTP_HOST) return {ok:false,skipped:true,reason:'SMTP_HOST no configurado'};
+  if(!nodemailer) throw new Error('nodemailer no está instalado. Ejecuta npm install nodemailer y vuelve a desplegar.');
+  const port=Number(process.env.SMTP_PORT || 587);
+  const secure=String(process.env.SMTP_SECURE || '').toLowerCase()==='true' || port===465;
+  const transporter=nodemailer.createTransport({
+    host:process.env.SMTP_HOST,
+    port,
+    secure,
+    auth: process.env.SMTP_USER ? {user:process.env.SMTP_USER, pass:process.env.SMTP_PASS || ''} : undefined
+  });
+  const from=process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER || 'ChoferLink <no-reply@choferlink.cl>';
+  const info=await transporter.sendMail({from,to,subject,text,html});
+  console.log('Email verification sent via SMTP to', to, info.messageId || 'sin-message-id');
+  return {ok:true,provider:'smtp',messageId:info.messageId};
+}
 async function sendEmailViaResend({to,subject,html,text}){
   const apiKey=process.env.RESEND_API_KEY;
   if(!apiKey) return {ok:false,skipped:true,reason:'RESEND_API_KEY no configurado'};
-  const from=process.env.EMAIL_FROM || 'ChoferLink <no-reply@choferlink.cl>';
+  const from=process.env.EMAIL_FROM || process.env.SMTP_FROM || 'ChoferLink <no-reply@choferlink.cl>';
   const r=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({from,to,subject,html,text})});
   if(!r.ok){ const body=await r.text().catch(()=>''); throw new Error(`No se pudo enviar email (${r.status}): ${body.slice(0,200)}`); }
-  return {ok:true};
+  console.log('Email verification sent via Resend to', to);
+  return {ok:true,provider:'resend'};
+}
+async function deliverEmail(payload){
+  const mode=String(process.env.EMAIL_DELIVERY || (process.env.SMTP_HOST?'smtp':(process.env.RESEND_API_KEY?'resend':'console'))).toLowerCase();
+  if(mode==='console') return {ok:false,skipped:true,console:true,reason:'EMAIL_DELIVERY=console'};
+  if(mode==='smtp') return sendEmailViaSmtp(payload);
+  if(mode==='resend') return sendEmailViaResend(payload);
+  // auto: intenta SMTP, luego Resend, luego consola
+  if(process.env.SMTP_HOST) return sendEmailViaSmtp(payload);
+  if(process.env.RESEND_API_KEY) return sendEmailViaResend(payload);
+  return {ok:false,skipped:true,console:true,reason:'Sin proveedor SMTP/Resend configurado'};
 }
 async function sendVerificationEmail(req,target){
   if(!target?.email) return {ok:false,skipped:true};
@@ -213,12 +242,19 @@ async function sendVerificationEmail(req,target){
   const subject='Verifica tu email en ChoferLink';
   const text=`Hola ${target.nombre||''}. Verifica tu email entrando a este enlace: ${link}. El enlace vence en 24 horas.`;
   const html=`<div style="font-family:Arial,sans-serif;line-height:1.5"><h2>Verifica tu email en ChoferLink</h2><p>Hola ${String(target.nombre||'').replace(/[<>]/g,'')},</p><p>Para activar tu cuenta, confirma tu email con el siguiente botón. El enlace vence en 24 horas.</p><p><a href="${link}" style="display:inline-block;background:#111;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none">Verificar email</a></p><p>Si el botón no funciona, copia este enlace:</p><p>${link}</p></div>`;
-  if(String(process.env.EMAIL_DELIVERY||'resend').toLowerCase()==='console'){
-    console.log('EMAIL_VERIFICATION_LINK', target.email, link);
-    return {ok:true,console:true,link};
+  console.log('Attempting email verification delivery to', target.email);
+  try{
+    const result=await deliverEmail({to:target.email,subject,html,text});
+    if(result.console || result.skipped){
+      console.log('EMAIL_VERIFICATION_LINK', target.email, link, '-', result.reason || 'sin proveedor configurado');
+      return {ok:true,console:true,link};
+    }
+    return result;
+  }catch(e){
+    console.error('Email verification send error:', e.message);
+    if(!isProduction){ console.log('EMAIL_VERIFICATION_LINK', target.email, link); return {ok:true,console:true,link}; }
+    throw e;
   }
-  try{return await sendEmailViaResend({to:target.email,subject,html,text});}
-  catch(e){ console.error('Email verification send error:', e.message); if(!isProduction){ console.log('EMAIL_VERIFICATION_LINK', target.email, link); return {ok:true,console:true,link}; } throw e; }
 }
 async function createAndSendVerification(req,userType,userId){
   const target=await db.createEmailVerification(userType,userId);

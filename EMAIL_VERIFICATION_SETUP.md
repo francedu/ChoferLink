@@ -1,39 +1,51 @@
 # Verificación de email en ChoferLink
 
-Esta versión exige confirmar el correo antes de iniciar sesión o usar una cuenta registrada.
+## Variables en Render para Gmail SMTP
 
-## Variables en Render
-
-Para envío real con Resend:
+Configura estas variables en tu Web Service:
 
 ```env
-PUBLIC_BASE_URL=https://choferlink.onrender.com
-EMAIL_DELIVERY=resend
-RESEND_API_KEY=tu_api_key_de_resend
-EMAIL_FROM=ChoferLink <no-reply@tu-dominio.cl>
+APP_BASE_URL=https://choferlink.onrender.com
+EMAIL_VERIFICATION_REQUIRED=true
+EMAIL_DELIVERY=smtp
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=tu_correo@gmail.com
+SMTP_PASS=tu_app_password_sin_espacios
+SMTP_FROM=ChoferLink <tu_correo@gmail.com>
 ```
 
-Para pruebas sin proveedor de correo:
+Para Gmail debes usar contraseña de aplicación. Si Google muestra la clave con espacios, guárdala en Render sin espacios.
+
+Después de cambiar variables:
+
+```text
+Manual Deploy → Clear build cache & deploy
+```
+
+## Cómo probar
+
+1. Registra una empresa nueva o perfil nuevo.
+2. En Logs de Render debe aparecer:
+
+```text
+Attempting email verification delivery to correo@dominio.com
+Email verification sent via SMTP to correo@dominio.com
+```
+
+3. El usuario recibe un enlace como `/api/email/verify?token=...`.
+
+## Modo diagnóstico
+
+Para ver el link en logs sin enviar correo:
 
 ```env
-PUBLIC_BASE_URL=https://choferlink.onrender.com
 EMAIL_DELIVERY=console
 ```
 
-En modo `console`, el enlace de verificación aparece en los logs de Render como `EMAIL_VERIFICATION_LINK`.
+Luego registra una cuenta y busca en Logs:
 
-## Flujo implementado
-
-1. Al registrar empresa o perfil se crea un token seguro.
-2. El token se guarda hasheado en base de datos.
-3. El enlace vence en 24 horas.
-4. El usuario debe entrar a `/api/email/verify?token=...`.
-5. Después de verificar, puede iniciar sesión y usar la cuenta.
-6. Si no llega el correo, puede reenviar desde `/api/email/resend` o desde el login empresa.
-
-## Seguridad
-
-- No se guarda el token en texto plano.
-- Tokens expiran en 24 horas.
-- Reenvío limitado por IP.
-- Cuentas no verificadas no pueden iniciar sesión ni usar endpoints protegidos.
+```text
+EMAIL_VERIFICATION_LINK
+```
