@@ -912,3 +912,5 @@ body.worker-session-active .nav-login-main{display:none;}
 .modal-card{position:relative;width:min(100%,520px);background:#fff;border:1px solid rgba(255,255,255,.7);border-radius:28px;padding:28px;box-shadow:0 34px 110px rgba(0,0,0,.30)}
 .plan-flow h2{margin:6px 0 10px;font-size:clamp(26px,4vw,38px);letter-spacing:-.04em}.plan-flow-badge{display:inline-flex;border-radius:999px;background:#ecfdf5;color:#065f46;border:1px solid #bbf7d0;padding:8px 12px;font-weight:900;margin:6px 0 14px}.plan-flow-summary{background:#f8fbff;border:1px solid var(--line);border-radius:18px;padding:16px;margin:16px 0}.plan-flow-summary ul{margin:8px 0 0;padding-left:20px;line-height:1.7}.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;flex-wrap:wrap}.modal-actions .btn{min-width:140px}
 @media(max-width:620px){.modal-card{padding:22px}.modal-actions .btn{width:100%}}
+
+.link-button{background:none;border:0;color:inherit;text-decoration:underline;cursor:pointer;padding:0;font:inherit}
