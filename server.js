@@ -143,12 +143,58 @@ function isDemoBillingEnabled(){
 }
 function paymentRequiredPayload(){
   return {
-    error: 'Para activar el plan Pagado debes completar el pago de 0,5 UF. La activación directa de demo está deshabilitada en producción.',
+    error: 'Para activar el plan Pagado debes completar el pago mensual mediante Flow.',
     code: 'payment_required',
     checkout_url: process.env.PAYMENT_CHECKOUT_URL || null,
-    instructions: 'Configura PAYMENT_CHECKOUT_URL con la pasarela real o habilita BILLING_MODE=demo solo en desarrollo.'
+    instructions: 'Configura FLOW_API_KEY, FLOW_SECRET_KEY y FLOW_BASE_URL en Render. Usa BILLING_MODE=demo solo en desarrollo.'
   };
 }
+
+function flowConfig(){
+  const apiKey=process.env.FLOW_API_KEY;
+  const secret=process.env.FLOW_SECRET_KEY;
+  const baseUrl=(process.env.FLOW_BASE_URL || 'https://sandbox.flow.cl/api').replace(/\/$/,'');
+  const publicUrl=(process.env.PUBLIC_APP_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/,'');
+  return {apiKey,secret,baseUrl,publicUrl};
+}
+function flowReady(){ const c=flowConfig(); return Boolean(c.apiKey && c.secret); }
+function flowSign(params){
+  const {secret}=flowConfig();
+  const text=Object.keys(params).filter(k=>k!=='s' && params[k]!==undefined && params[k]!==null).sort().map(k=>`${k}${params[k]}`).join('');
+  return crypto.createHmac('sha256', secret).update(text).digest('hex');
+}
+async function flowRequest(pathname, params={}, method='GET'){
+  const cfg=flowConfig();
+  if(!cfg.apiKey || !cfg.secret) throw new Error('Flow no está configurado. Define FLOW_API_KEY y FLOW_SECRET_KEY en Render.');
+  const signed={...params, apiKey:cfg.apiKey};
+  signed.s=flowSign(signed);
+  const url=new URL(`${cfg.baseUrl}${pathname}`);
+  const options={method};
+  if(method==='GET') Object.entries(signed).forEach(([k,v])=>url.searchParams.set(k,String(v)));
+  else { options.headers={'Content-Type':'application/x-www-form-urlencoded'}; options.body=new URLSearchParams(Object.entries(signed).map(([k,v])=>[k,String(v)])).toString(); }
+  const response=await fetch(url,options);
+  const text=await response.text();
+  let data;
+  try{ data=JSON.parse(text); }catch{ data={raw:text}; }
+  if(!response.ok || data.code){ throw new Error(data.message || data.error || `Flow respondió HTTP ${response.status}`); }
+  return data;
+}
+function paymentStatusFromFlow(status){
+  const n=Number(status);
+  if(n===2) return 'paid';
+  if(n===3) return 'rejected';
+  if(n===4) return 'cancelled';
+  return 'pending';
+}
+async function confirmFlowToken(token){
+  if(!token) throw new Error('Token de Flow faltante.');
+  const status=await flowRequest('/payment/getStatus',{token},'GET');
+  const localStatus=paymentStatusFromFlow(status.status);
+  if(localStatus==='paid') return db.activateCompanyPaidFromPayment(token,status);
+  const payment=await db.updatePaymentFromFlow(token,localStatus,status.flowOrder,status);
+  return {payment,flow:status};
+}
+
 
 const adminSessions = new Map();
 const ADMIN_SESSION_TTL_MS = Number(process.env.ADMIN_SESSION_TTL_MS || 8*60*60*1000);
@@ -213,9 +259,39 @@ app.post('/api/company-plan',requireCompany,async(req,res)=>{
 });
 app.post('/api/company-plan/checkout',requireCompany,async(req,res)=>{
   if(isDemoBillingEnabled()) return res.json({demo:true,message:'Modo demo activo. Usa /api/company-plan para activar Pagado sin pasarela.'});
-  if(process.env.PAYMENT_CHECKOUT_URL) return res.json({checkout_url:process.env.PAYMENT_CHECKOUT_URL,amount:'0,5 UF',period_days:30});
-  res.status(501).json(paymentRequiredPayload());
+  if(!req.company?.verificada) return res.status(403).json({error:'Tu empresa debe estar verificada antes de activar el plan Pagado.'});
+  if(!flowReady()){
+    if(process.env.PAYMENT_CHECKOUT_URL) return res.json({checkout_url:process.env.PAYMENT_CHECKOUT_URL,amount:'0,5 UF',period_days:30});
+    return res.status(501).json(paymentRequiredPayload());
+  }
+  const cfg=flowConfig();
+  const amount=Number(process.env.PLAN_PAID_AMOUNT_CLP || 19990);
+  const publicUrl=cfg.publicUrl || `${req.protocol}://${req.get('host')}`;
+  const commerceOrder=`CL-${req.company.id}-${Date.now()}`;
+  const subject=process.env.FLOW_PAYMENT_SUBJECT || 'ChoferLink - Plan Pagado 30 dias';
+  const urlConfirmation=process.env.FLOW_CONFIRM_URL || `${publicUrl}/api/payments/flow/confirm`;
+  const urlReturn=process.env.FLOW_RETURN_URL || `${publicUrl}/api/payments/flow/return`;
+  const flow=await flowRequest('/payment/create',{commerceOrder,subject,currency:'CLP',amount,email:req.company.email,urlConfirmation,urlReturn},'POST');
+  await db.createPaymentAttempt(req.company.id,{provider:'flow',amount,currency:'CLP',status:'pending',commerce_order:commerceOrder,flow_token:flow.token,flow_order:flow.flowOrder,raw_response:flow});
+  const checkout_url=flow.url && flow.token ? `${flow.url}?token=${encodeURIComponent(flow.token)}` : (flow.url || null);
+  res.json({provider:'flow',checkout_url,token:flow.token,commerce_order:commerceOrder,amount,currency:'CLP',period_days:30});
 });
+
+app.all('/api/payments/flow/confirm',async(req,res)=>{
+  try{
+    const token=req.body?.token || req.query?.token;
+    const result=await confirmFlowToken(token);
+    res.json({ok:true,...result});
+  }catch(e){ res.status(400).json({ok:false,error:e.message || 'No se pudo confirmar el pago Flow.'}); }
+});
+app.all('/api/payments/flow/return',async(req,res)=>{
+  try{
+    const token=req.body?.token || req.query?.token;
+    if(token) await confirmFlowToken(token);
+  }catch(_){ /* El webhook de confirmación es la fuente principal. */ }
+  res.redirect('/empresa-suscripcion.html?payment=flow');
+});
+
 app.post('/api/company-plan/cancel',requireCompany,async(req,res)=>res.json(await db.cancelCompanyPlan(req.company.id)));
 
 app.post('/api/billing/webhook',async(req,res)=>{

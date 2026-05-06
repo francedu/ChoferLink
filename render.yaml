@@ -24,6 +24,20 @@ services:
         generateValue: true
       - key: BILLING_MODE
         value: payment
+      - key: FLOW_API_KEY
+        sync: false
+      - key: FLOW_SECRET_KEY
+        sync: false
+      - key: FLOW_BASE_URL
+        value: https://sandbox.flow.cl/api
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: FLOW_RETURN_URL
+        sync: false
+      - key: FLOW_CONFIRM_URL
+        sync: false
+      - key: PLAN_PAID_AMOUNT_CLP
+        value: 19990
       - key: SEED_DEMO
         value: false
 

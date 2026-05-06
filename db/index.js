@@ -49,6 +49,7 @@ async function migrate(){
     await query(`CREATE TABLE IF NOT EXISTS favorites(id SERIAL PRIMARY KEY,company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE,created_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(company_id,profile_id))`);
     await query(`CREATE TABLE IF NOT EXISTS contact_history(id SERIAL PRIMARY KEY,company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,channel TEXT DEFAULT 'whatsapp',created_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(company_id,profile_id,channel))`);
     await query(`CREATE TABLE IF NOT EXISTS notifications(id SERIAL PRIMARY KEY,user_type TEXT NOT NULL,user_id INTEGER NOT NULL,title TEXT NOT NULL,message TEXT NOT NULL,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())`);
+    await query(`CREATE TABLE IF NOT EXISTS payments(id SERIAL PRIMARY KEY,company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,provider TEXT NOT NULL DEFAULT 'flow',amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'CLP',status TEXT NOT NULL DEFAULT 'pending',commerce_order TEXT UNIQUE,flow_token TEXT UNIQUE,flow_order TEXT,raw_response TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),paid_at TIMESTAMPTZ)`);
   } else {
     await query(`CREATE TABLE IF NOT EXISTS profiles(id INTEGER PRIMARY KEY AUTOINCREMENT,tipo TEXT NOT NULL,nombre TEXT NOT NULL,rut TEXT,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,licencia TEXT,experiencia INTEGER DEFAULT 0,especialidad TEXT NOT NULL,disponibilidad TEXT NOT NULL,verificado INTEGER DEFAULT 0,email TEXT,whatsapp TEXT NOT NULL,rutas TEXT,descripcion TEXT,documento_licencia TEXT,hoja_vida_conductor TEXT,licencia_vencimiento TEXT,documento_estado TEXT DEFAULT 'pendiente',password_hash TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
     await query(`CREATE TABLE IF NOT EXISTS trucks(id INTEGER PRIMARY KEY AUTOINCREMENT,profile_id INTEGER NOT NULL,patente TEXT NOT NULL,tipo TEXT NOT NULL,marca_modelo TEXT,anio INTEGER,capacidad_toneladas TEXT,seguro_vigente TEXT,revision_tecnica TEXT,permiso_circulacion TEXT,soap TEXT,disponibilidad TEXT,documento_vehiculo TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE)`);
@@ -64,6 +65,7 @@ async function migrate(){
     await query(`CREATE TABLE IF NOT EXISTS favorites(id INTEGER PRIMARY KEY AUTOINCREMENT,company_id INTEGER NOT NULL,profile_id INTEGER NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(company_id,profile_id),FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE,FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE)`);
     await query(`CREATE TABLE IF NOT EXISTS contact_history(id INTEGER PRIMARY KEY AUTOINCREMENT,company_id INTEGER NOT NULL,profile_id INTEGER,channel TEXT DEFAULT 'whatsapp',created_at TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(company_id,profile_id,channel),FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE,FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE SET NULL)`);
     await query(`CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_type TEXT NOT NULL,user_id INTEGER NOT NULL,title TEXT NOT NULL,message TEXT NOT NULL,read_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    await query(`CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY AUTOINCREMENT,company_id INTEGER NOT NULL,provider TEXT NOT NULL DEFAULT 'flow',amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'CLP',status TEXT NOT NULL DEFAULT 'pending',commerce_order TEXT UNIQUE,flow_token TEXT UNIQUE,flow_order TEXT,raw_response TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,paid_at TEXT,FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE)`);
   }
   await migrateExisting();
 }
@@ -103,6 +105,11 @@ async function migrateExisting(){
     if(client==='postgres') await query(`CREATE TABLE IF NOT EXISTS notifications(id SERIAL PRIMARY KEY,user_type TEXT NOT NULL,user_id INTEGER NOT NULL,title TEXT NOT NULL,message TEXT NOT NULL,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())`);
     else await query(`CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_type TEXT NOT NULL,user_id INTEGER NOT NULL,title TEXT NOT NULL,message TEXT NOT NULL,read_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
   }
+
+  if(!(await tableExists('payments'))){
+    if(client==='postgres') await query(`CREATE TABLE IF NOT EXISTS payments(id SERIAL PRIMARY KEY,company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,provider TEXT NOT NULL DEFAULT 'flow',amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'CLP',status TEXT NOT NULL DEFAULT 'pending',commerce_order TEXT UNIQUE,flow_token TEXT UNIQUE,flow_order TEXT,raw_response TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),paid_at TIMESTAMPTZ)`);
+    else await query(`CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY AUTOINCREMENT,company_id INTEGER NOT NULL,provider TEXT NOT NULL DEFAULT 'flow',amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'CLP',status TEXT NOT NULL DEFAULT 'pending',commerce_order TEXT UNIQUE,flow_token TEXT UNIQUE,flow_order TEXT,raw_response TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,paid_at TEXT,FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE)`);
+  }
   await ensureIndexes();
 }
 async function ensureIndexes(){
@@ -126,6 +133,8 @@ async function ensureIndexes(){
     'CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_type,user_id,read_at)',
     'CREATE INDEX IF NOT EXISTS idx_favorites_company ON favorites(company_id)',
     'CREATE INDEX IF NOT EXISTS idx_contact_company ON contact_history(company_id)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_company ON payments(company_id,status)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_token ON payments(flow_token)',
     client==='postgres' ? "CREATE UNIQUE INDEX IF NOT EXISTS companies_unique_rut_empresa ON companies(rut_empresa) WHERE rut_empresa IS NOT NULL AND rut_empresa<>''" : "CREATE UNIQUE INDEX IF NOT EXISTS companies_unique_rut_empresa ON companies(rut_empresa) WHERE rut_empresa IS NOT NULL AND rut_empresa<>''"
   ];
   for(const stmt of stmts){ try{ await query(stmt); }catch(e){} }
@@ -291,6 +300,30 @@ async function deleteProfileAccount(profileId){
 }
 
 
+
+async function createPaymentAttempt(companyId,p={}){
+  const amount=Number(p.amount||0);
+  if(!amount || amount<1) throw new Error('Monto de pago inválido.');
+  const raw=JSON.stringify(p.raw_response||{}).slice(0,5000);
+  const r=await query(`INSERT INTO payments(company_id,provider,amount,currency,status,commerce_order,flow_token,flow_order,raw_response) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,[companyId,p.provider||'flow',amount,p.currency||'CLP',p.status||'pending',p.commerce_order||'',p.flow_token||'',p.flow_order?String(p.flow_order):'',raw]);
+  return (await query('SELECT * FROM payments WHERE id=$1',[r[0].id]))[0];
+}
+async function getPaymentByFlowToken(token){ return (await query('SELECT * FROM payments WHERE flow_token=$1',[String(token||'')]))[0]||null; }
+async function updatePaymentFromFlow(token,status,flowOrder,raw={}){
+  const paidAt=String(status||'').toLowerCase()==='paid' ? iso(new Date()) : null;
+  const rawText=JSON.stringify(raw||{}).slice(0,5000);
+  await query('UPDATE payments SET status=$1,flow_order=COALESCE($2,flow_order),raw_response=$3,paid_at=COALESCE($4,paid_at) WHERE flow_token=$5',[status,flowOrder?String(flowOrder):null,rawText,paidAt,String(token||'')]);
+  return getPaymentByFlowToken(token);
+}
+async function activateCompanyPaidFromPayment(token,raw={}){
+  const payment=await getPaymentByFlowToken(token);
+  if(!payment) throw new Error('Pago no encontrado.');
+  const company=await updateCompanyPlan(payment.company_id,'paid');
+  await updatePaymentFromFlow(token,'paid',raw.flowOrder||raw.flow_order||payment.flow_order,raw);
+  return {payment:await getPaymentByFlowToken(token),company};
+}
+async function listCompanyPayments(companyId){ return query('SELECT id,provider,amount,currency,status,commerce_order,flow_order,created_at,paid_at FROM payments WHERE company_id=$1 ORDER BY id DESC LIMIT 20',[companyId]); }
+
 async function companySubscriptionStatus(id){
   const c=await refreshCompanySubscription(id);
   const pub=companyPublic(c);
@@ -307,7 +340,8 @@ async function companySubscriptionStatus(id){
     cancel_at_period_end:pub.cancel_at_period_end,
     benefits_until:pub.subscription_active ? pub.subscription_ends_at : null,
     auto_renew:pub.subscription_active && !pub.cancel_at_period_end,
-    permissions:pub.permissions
+    permissions:pub.permissions,
+    payments: await listCompanyPayments(id)
   };
 }
 
@@ -684,4 +718,4 @@ async function seedIfEmpty(){
   }
   await ensureRichDemoData();
 }
-module.exports={client,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
+module.exports={client,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,createPaymentAttempt,getPaymentByFlowToken,updatePaymentFromFlow,activateCompanyPaidFromPayment,listCompanyPayments,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
