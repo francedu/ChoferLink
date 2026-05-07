@@ -201,16 +201,30 @@ async function confirmFlowToken(token){
 
 function publicBaseUrl(req){ return (process.env.PUBLIC_BASE_URL || process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/,''); }
 function emailVerificationUrl(req,token){ return `${publicBaseUrl(req)}/api/email/verify?token=${encodeURIComponent(token)}`; }
+
 async function sendEmailViaSmtp({to,subject,html,text}){
   if(!process.env.SMTP_HOST) return {ok:false,skipped:true,reason:'SMTP_HOST no configurado'};
   if(!nodemailer) throw new Error('nodemailer no está instalado. Ejecuta npm install nodemailer y vuelve a desplegar.');
-  const port=Number(process.env.SMTP_PORT || 587);
-  const secure=String(process.env.SMTP_SECURE || '').toLowerCase()==='true' || port===465;
-  const transporter=nodemailer.createTransport({
-    host:process.env.SMTP_HOST,
+
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+  const pass = process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '';
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
     port,
     secure,
-    auth: process.env.SMTP_USER ? {user:process.env.SMTP_USER, pass:process.env.SMTP_PASS || ''} : undefined
+    family: 4,
+    connectionTimeout: Number(process.env.SMTP_TIMEOUT_MS || 30000),
+    greetingTimeout: Number(process.env.SMTP_TIMEOUT_MS || 30000),
+    socketTimeout: Number(process.env.SMTP_TIMEOUT_MS || 30000),
+    auth: process.env.SMTP_USER ? {
+      user: process.env.SMTP_USER,
+      pass
+    } : undefined,
+    tls: {
+      rejectUnauthorized: false
+    }
   });
   const from=process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER || 'ChoferLink <no-reply@choferlink.cl>';
   const info=await transporter.sendMail({from,to,subject,text,html});
