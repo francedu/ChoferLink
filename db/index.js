@@ -426,7 +426,44 @@ async function getCompanyPublicPage(id){
 }
 
 async function updateCompanyProfile(id,c){ await query('UPDATE companies SET nombre=$1,razon_social=$2,rut_empresa=$3,region=$4,comuna=$5,ubicacion=$6,tipo_empresa=$7,necesidad=$8,whatsapp=$9,tamano_empresa=$10,sitio_web=$11,descripcion=$12 WHERE id=$13',[c.nombre,c.razon_social||'',normalizeCompanyRut(c.rut_empresa),c.region||'',c.comuna||'',loc(c),c.tipo_empresa,c.necesidad,c.whatsapp,c.tamano_empresa||'',c.sitio_web||'',c.descripcion||'',id]); return getCompanyPublicById(id); }
-async function companyMetrics(id){ const jobs=await query('SELECT COUNT(*) total FROM jobs WHERE company_id=$1',[id]); const apps=await query('SELECT COUNT(*) total FROM applications a JOIN jobs j ON j.id=a.job_id WHERE j.company_id=$1',[id]); const searches=await query('SELECT COUNT(*) total FROM saved_searches WHERE company_id=$1',[id]); const favs=await query('SELECT COUNT(*) total FROM favorites WHERE company_id=$1',[id]); const contacts=await query('SELECT COUNT(*) total FROM contact_history WHERE company_id=$1',[id]); const locked=await query("SELECT COUNT(*) total FROM events WHERE company_id=$1 AND type='contact_attempt_locked'",[id]); return {jobs:Number(jobs[0].total),applications:Number(apps[0].total),saved_searches:Number(searches[0].total),favorites:Number(favs[0].total),contacts:Number(contacts[0].total),locked_contact_attempts:Number(locked[0].total)}; }
+async function companyMetrics(id){
+  const one = async (sql,params=[]) => Number(((await query(sql,params))[0]||{}).total||0);
+  const jobs=await one('SELECT COUNT(*) total FROM jobs WHERE company_id=$1',[id]);
+  const openJobs=await one("SELECT COUNT(*) total FROM jobs WHERE company_id=$1 AND COALESCE(estado,'abierto')='abierto'",[id]);
+  const pausedJobs=await one("SELECT COUNT(*) total FROM jobs WHERE company_id=$1 AND COALESCE(estado,'abierto')='pausado'",[id]);
+  const closedJobs=await one("SELECT COUNT(*) total FROM jobs WHERE company_id=$1 AND COALESCE(estado,'abierto')='cerrado'",[id]);
+  const apps=await one('SELECT COUNT(*) total FROM applications a JOIN jobs j ON j.id=a.job_id WHERE j.company_id=$1',[id]);
+  const contacted=await one("SELECT COUNT(*) total FROM applications a JOIN jobs j ON j.id=a.job_id WHERE j.company_id=$1 AND LOWER(COALESCE(a.status,'')) IN ('contactado','entrevista','contratado')",[id]);
+  const hired=await one("SELECT COUNT(*) total FROM applications a JOIN jobs j ON j.id=a.job_id WHERE j.company_id=$1 AND LOWER(COALESCE(a.status,''))='contratado'",[id]);
+  const searches=await one('SELECT COUNT(*) total FROM saved_searches WHERE company_id=$1',[id]);
+  const favs=await one('SELECT COUNT(*) total FROM favorites WHERE company_id=$1',[id]);
+  const contacts=await one('SELECT COUNT(*) total FROM contact_history WHERE company_id=$1',[id]);
+  const locked=await one("SELECT COUNT(*) total FROM events WHERE company_id=$1 AND type='contact_attempt_locked'",[id]);
+  const searchesEvents=await one("SELECT COUNT(*) total FROM events WHERE company_id=$1 AND type='search_profiles'",[id]);
+  const matches=await one("SELECT COUNT(*) total FROM events WHERE company_id=$1 AND type='smart_match_run'",[id]);
+  const conversion_application_to_contact = apps ? Math.round((contacted/apps)*100) : 0;
+  const conversion_contact_to_hired = contacted ? Math.round((hired/contacted)*100) : 0;
+  return {jobs,open_jobs:openJobs,paused_jobs:pausedJobs,closed_jobs:closedJobs,applications:apps,contacted_applications:contacted,hired_applications:hired,saved_searches:searches,favorites:favs,contacts,locked_contact_attempts:locked,search_events:searchesEvents,match_runs:matches,conversion_application_to_contact,conversion_contact_to_hired};
+}
+async function companyDashboardInsights(id){
+  const company=(await query('SELECT * FROM companies WHERE id=$1',[id]))[0];
+  const metrics=await companyMetrics(id);
+  const jobs=await query(`SELECT j.id,j.titulo,j.region,j.comuna,j.estado,j.max_applications,j.created_at,COUNT(a.id) applications_count,
+    SUM(CASE WHEN LOWER(COALESCE(a.status,'')) IN ('contactado','entrevista','contratado') THEN 1 ELSE 0 END) contacted_count
+    FROM jobs j LEFT JOIN applications a ON a.job_id=j.id WHERE j.company_id=$1 GROUP BY j.id ORDER BY j.id DESC LIMIT 8`,[id]);
+  const alerts=[];
+  if(company && !company.email_verified) alerts.push({level:'warn',title:'Email no verificado',message:'Verifica el correo de la empresa para evitar bloqueos de acceso.'});
+  if(company && !company.verificada) alerts.push({level:'warn',title:'Empresa pendiente de verificación',message:'La empresa necesita aprobación documental para publicar y acceder a contactos.'});
+  if(metrics.open_jobs===0) alerts.push({level:'info',title:'Sin ofertas abiertas',message:'Publica una oferta para recibir postulaciones y activar mejor matching.'});
+  for(const j of jobs){ if(String(j.estado||'abierto')==='abierto' && Number(j.applications_count||0)===0) alerts.push({level:'info',title:'Oferta sin postulantes',message:`${j.titulo} aún no recibe postulaciones. Revisa los matches recomendados.`}); }
+  if(metrics.applications>0 && metrics.conversion_application_to_contact<25) alerts.push({level:'info',title:'Baja conversión a contacto',message:'Tienes postulaciones, pero pocas avanzan a contacto. Usa WhatsApp rápido o cambia estados.'});
+  const recommendations=[];
+  if(metrics.saved_searches===0) recommendations.push('Guarda búsquedas por zona/licencia para acelerar futuras contrataciones.');
+  if(metrics.favorites===0) recommendations.push('Marca perfiles favoritos para construir una base de candidatos recurrentes.');
+  if(metrics.match_runs===0) recommendations.push('Ejecuta matching por oferta para priorizar candidatos con mejor fit.');
+  if(company && company.verificada && !planActive(company)) recommendations.push('Activa plan Pagado para desbloquear contactos y WhatsApp rápido.');
+  return {metrics,job_performance:jobs.map(j=>({...j,applications_count:Number(j.applications_count||0),contacted_count:Number(j.contacted_count||0)})),alerts:alerts.slice(0,8),recommendations:recommendations.slice(0,6)};
+}
 async function saveSearch(companyId,s){ const r=await query('INSERT INTO saved_searches(company_id,nombre,tipo,licencia,q,region) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[companyId,s.nombre||'Búsqueda personalizada',s.tipo||'todos',s.licencia||'todos',s.q||'',s.region||'']); return (await query('SELECT * FROM saved_searches WHERE id=$1',[r[0].id]))[0]; }
 async function listSavedSearches(companyId){ return query('SELECT * FROM saved_searches WHERE company_id=$1 ORDER BY id DESC',[companyId]); }
 async function deleteSavedSearch(companyId,id){ await query('DELETE FROM saved_searches WHERE company_id=$1 AND id=$2',[companyId,id]); return {ok:true}; }
@@ -608,18 +645,40 @@ async function adminGetCompanyDocument(id){
   return {path:c.documento_empresa};
 }
 
-function companyAutoVerificationEligible(c){
+function isPublicEmailDomain(email){ return /@(gmail|hotmail|outlook|live|yahoo|icloud)\./i.test(String(email||'')); }
+function companySiiPartialPrecheck(c){
   const rut=String(c?.rut_empresa||'');
-  const legal=/(spa|s\.?p\.?a|ltda|limitada|eirl|e\.?i\.?r\.?l|s\.?a\.?|sociedad|cooperativa|fundaci[oó]n|corporaci[oó]n)/i.test(String(c?.razon_social||''));
-  const rutNum=Number(rut.replace(/\D/g,'').slice(0,-1));
-  const reasons=[];
-  if(!c?.email_verified) reasons.push('email no verificado');
-  if(!c?.documento_empresa) reasons.push('sin documento empresa');
-  if(!rut || !Number.isFinite(rutNum) || rutNum<50000000) reasons.push('RUT no parece jurídico');
-  if(!legal) reasons.push('razón social sin tipo legal claro');
-  if(!c?.region || !c?.comuna) reasons.push('ubicación incompleta');
-  if(!c?.whatsapp) reasons.push('WhatsApp faltante');
-  return {eligible:reasons.length===0,reasons};
+  const rutClean=rut.replace(/[^0-9Kk]/g,'').toUpperCase();
+  const rutNum=Number(rutClean.slice(0,-1));
+  const legalName=String(c?.razon_social||'');
+  const commercial=String(c?.nombre||'');
+  const legalSuffix=/(spa|s\.?p\.?a|ltda|limitada|eirl|e\.?i\.?r\.?l|s\.?a\.?|sociedad anonima|sociedad por acciones|sociedad|cooperativa|fundaci[oó]n|corporaci[oó]n)/i.test(legalName);
+  const hasDocument=Boolean(c?.documento_empresa);
+  const rutLooksCompany=Number.isFinite(rutNum) && rutNum>=50000000;
+  const emailDomainOk=!isPublicEmailDomain(c?.email);
+  const nameOverlap=normText(legalName).split(/\s+/).filter(w=>w.length>3).some(w=>normText(commercial).includes(w));
+  const checks=[
+    {key:'rut_juridico',ok:rutLooksCompany,label:'RUT jurídico / empresa'},
+    {key:'razon_social_legal',ok:legalSuffix,label:'Razón social con tipo legal'},
+    {key:'documento_empresa',ok:hasDocument,label:'Documento de empresa cargado'},
+    {key:'email_verificado',ok:Boolean(c?.email_verified),label:'Email verificado'},
+    {key:'dominio_email',ok:emailDomainOk,label:'Email no gratuito'},
+    {key:'coherencia_nombre',ok:nameOverlap || legalSuffix,label:'Nombre comercial coherente'},
+    {key:'contacto',ok:Boolean(c?.whatsapp && c?.region && c?.comuna),label:'Contacto y ubicación completos'}
+  ];
+  const score=Math.round((checks.filter(x=>x.ok).length/checks.length)*100);
+  const status=score>=85?'preaprobable':score>=60?'revision_recomendada':'riesgo_alto';
+  return {score,status,checks,notes:[
+    'Prevalidación interna: no consulta SII en línea.',
+    'Úsala para priorizar revisión documental, no como verificación tributaria oficial.'
+  ]};
+}
+function companyAutoVerificationEligible(c){
+  const sii_precheck=companySiiPartialPrecheck(c);
+  const reasons=sii_precheck.checks.filter(x=>!x.ok).map(x=>x.label);
+  // Conservador: para auto-verificar exige lo esencial y puntaje alto. El admin mantiene control.
+  const essentialOk=['rut_juridico','razon_social_legal','documento_empresa','email_verificado','contacto'].every(k=>sii_precheck.checks.find(x=>x.key===k)?.ok);
+  return {eligible:essentialOk && sii_precheck.score>=85,reasons,sii_precheck};
 }
 async function adminAutoVerificationCandidates(){
   const rows=await query(`SELECT id,nombre,razon_social,rut_empresa,region,comuna,email,whatsapp,documento_empresa,email_verified,verificada,created_at FROM companies WHERE verificada IS NOT TRUE ORDER BY id DESC LIMIT 300`);
@@ -630,8 +689,8 @@ async function adminRunAutoVerification({dry_run=true}={}){
   const eligible=candidates.filter(c=>c.auto_verification?.eligible);
   if(!dry_run){
     for(const c of eligible){
-      await query('UPDATE companies SET verificada=$1 WHERE id=$2',[client==='postgres'?true:1,c.id]);
-      await trackEvent('company_auto_verified',{company_id:c.id,metadata:{reason:'email+document+legal_rut+legal_name'}});
+      await query('UPDATE companies SET verificada=$1,verification_review_notes=$2,verification_reviewed_at=CURRENT_TIMESTAMP WHERE id=$3',[client==='postgres'?true:1,`Auto-verificación parcial SII: score ${c.auto_verification.sii_precheck.score}/100`,c.id]);
+      await trackEvent('company_auto_verified',{company_id:c.id,metadata:{reason:'sii_partial_precheck',score:c.auto_verification.sii_precheck.score,checks:c.auto_verification.sii_precheck.checks}});
     }
   }
   return {dry_run:Boolean(dry_run),eligible_count:eligible.length,total_checked:candidates.length,candidates};
@@ -852,4 +911,4 @@ async function seedIfEmpty(){
   }
   await ensureRichDemoData();
 }
-module.exports={client,createPasswordReset,resetPasswordByToken,adminAuditEvents,fraudSignals,adminAutoVerificationCandidates,adminRunAutoVerification,createEmailVerification,verifyEmailToken,getEmailVerificationTarget,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,createPaymentAttempt,getPaymentByFlowToken,updatePaymentFromFlow,activateCompanyPaidFromPayment,listCompanyPayments,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
+module.exports={client,createPasswordReset,resetPasswordByToken,adminAuditEvents,fraudSignals,companySiiPartialPrecheck,adminAutoVerificationCandidates,adminRunAutoVerification,createEmailVerification,verifyEmailToken,getEmailVerificationTarget,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,createPaymentAttempt,getPaymentByFlowToken,updatePaymentFromFlow,activateCompanyPaidFromPayment,listCompanyPayments,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,companyDashboardInsights,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
