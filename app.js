@@ -33,7 +33,7 @@ async function api(path,opt={}){const r=await fetch(path,{...opt,headers:{...hea
 async function trackFrontend(type,target_type='',target_id=null,metadata={}){try{await api('/api/events',{method:'POST',body:JSON.stringify({type,target_type,target_id,metadata})})}catch(e){}}
 async function saveFavoriteProfile(id){if(!currentCompany){location.href='/empresa';return}try{await api(`/api/favorites/${id}`,{method:'POST'});alert('Perfil guardado en favoritos.');await loadCompanyDashboard()}catch(e){alert(e.message)}}
 async function removeFavoriteProfile(id){await api(`/api/favorites/${id}`,{method:'DELETE'});await loadCompanyDashboard()}
-async function openContactProfile(id,phone){if(!currentCompany){await trackFrontend('contact_attempt_locked','profile',id);location.href='/empresa';return}try{await api(`/api/contact-history/${id}`,{method:'POST',body:JSON.stringify({channel:'whatsapp'})});if(phone)window.open(whatsappLink(phone),'_blank');else alert('Contacto desbloqueado, pero el teléfono no está disponible en esta vista.');setTimeout(()=>loadCompanyDashboard(),300)}catch(e){alert(e.message)}}
+async function openContactProfile(id,phone,profileName=''){if(!currentCompany){await trackFrontend('contact_attempt_locked','profile',id);location.href='/empresa';return}try{await api(`/api/contact-history/${id}`,{method:'POST',body:JSON.stringify({channel:'whatsapp'})});if(phone){const msg=quickWhatsappMessage(profileName);await trackFrontend('quick_whatsapp_opened','profile',id,{has_phone:true});window.open(whatsappLink(phone,msg),'_blank');}else alert('Contacto desbloqueado, pero el teléfono no está disponible en esta vista.');setTimeout(()=>loadCompanyDashboard(),300)}catch(e){alert(e.message)}}
 async function markNotificationsRead(){await api('/api/notifications/read',{method:'POST'});await loadCompanyDashboard()}
 async function apiForm(path,formData){const h={...(token()?{Authorization:`Bearer ${token()}`}:{}) ,...(profileToken()?{'X-Profile-Token':profileToken()}:{})};const r=await fetch(path,{method:'POST',headers:h,body:formData});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Error de servidor');return d}
 function validateFile(input,maxMb,allowed,msg){const f=input?.files?.[0];if(!f)return true;const ext=f.name.toLowerCase().split('.').pop();if(allowed&&!allowed.includes(ext))throw new Error(msg);if(f.size>maxMb*1024*1024)throw new Error(`El archivo ${f.name} supera el máximo de ${maxMb} MB.`);return true}
@@ -43,6 +43,8 @@ function statusBadge(s){const labels={nuevo:'Nuevo',contactado:'Contactado',entr
 function statusSelect(id,current){if(String(current||'').toLowerCase()==='retirada')return '<span class="badge warn">Retirada por trabajador</span>';const vals=['nuevo','contactado','entrevista','contratado','descartado','cerrado'];return `<select class="status-select" onchange="updateApplicationStatus(${id},this.value)">${vals.map(v=>`<option value="${v}" ${String(current||'nuevo').toLowerCase()===v?'selected':''}>${statusBadge(v)}</option>`).join('')}</select>`}
 function reviewGateNotice(){return `<p class="hint">🔐 Las evaluaciones solo se habilitan si existe una postulación registrada y marcada como Contactado, Entrevista o Contratado. Una relación = una evaluación.</p>`}
 function whatsappLink(phone,text='Hola, vi tu perfil en ChoferLink. ¿Estás disponible?'){return `https://wa.me/${String(phone).replace(/\D/g,'')}?text=${encodeURIComponent(text)}`}
+function quickWhatsappMessage(profileName=''){const empresa=currentCompany?.nombre?` de ${currentCompany.nombre}`:'';const nombre=profileName?` ${profileName}`:'';return `Hola${nombre}, soy${empresa}. Vi tu perfil en ChoferLink y me gustaría conversar sobre una oportunidad de transporte. ¿Estás disponible?`;}
+
 function fillRegions(){document.querySelectorAll('.region-select').forEach(s=>{const val=s.dataset.value||s.value;s.innerHTML='<option value="">Región</option>'+REGIONES.map(r=>`<option value="${esc(r)}" ${r===val?'selected':''}>${esc(r)}</option>`).join('')});const jr=$('jobRegion');if(jr&&!jr.dataset.filled){jr.innerHTML='<option value="">Todas las regiones</option>'+REGIONES.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('');jr.dataset.filled='1'}setupLocationSelects()}
 function heroSearch(e){if(e)e.preventDefault();const region=$('heroRegion')?.value||'',licencia=$('heroLicencia')?.value||'todos';const params=new URLSearchParams();if(region)params.set('region',region);if(licencia&&licencia!=='todos')params.set('licencia',licencia);history.replaceState(null,'',`/buscar${params.toString()?'?'+params.toString():''}`);applySearchParams();$('perfiles')?.scrollIntoView({behavior:'smooth',block:'start'})}
 function applySearchParams(){const p=new URLSearchParams(location.search),region=p.get('region')||'',licencia=p.get('licencia')||'todos',q=p.get('q')||'';if($('profileRegion'))$('profileRegion').value=region;if($('heroRegion'))$('heroRegion').value=region;if($('profileLicencia'))$('profileLicencia').value=licencia;if($('heroLicencia'))$('heroLicencia').value=licencia;if($('profileQ')&&q)$('profileQ').value=q;if(region||licencia!=='todos'||q)loadProfiles()}
@@ -69,7 +71,7 @@ async function loadWorkerApplications(){if(!currentProfile){workerApplications=[
 function workerPublicStatus(status){const s=String(status||'nuevo').toLowerCase();if(s==='contratado')return {label:'Aceptada',cls:'accepted'};if(s==='retirada')return {label:'Retirada',cls:'rejected'};if(['descartado','cerrado'].includes(s))return {label:'Rechazada',cls:'rejected'};return {label:'En revisión',cls:'review'};}
 function applicationHistoryHtml(a){const h=a.status_history||[];if(!h.length)return '';return `<details class="application-history"><summary>Historial de estados</summary>${h.map(x=>`<div><strong>${statusBadge(x.status)}</strong><small>${x.created_at||''}</small>${x.message?`<p>${esc(x.message)}</p>`:''}</div>`).join('')}</details>`}
 function renderWorkerApplicationsPanel(){const box=$('workerApplicationsList');if(!box)return;box.innerHTML=(workerApplications||[]).map(a=>{const st=workerPublicStatus(a.status);return `<article class="worker-application-row"><div><strong>${a.trabajo}</strong><p>${a.empresa} · ${a.comuna||''}, ${a.region||''}</p></div><span class="worker-status-badge ${st.cls}">${st.label}</span>${applicationHistoryHtml(a)}</article>`}).join('')||'<p class="hint">Aún no tienes postulaciones. Postula en 1 clic a una oferta compatible.</p>';}
-async function refreshSession(){try{const me=await api('/api/me');currentCompany=me.company;currentProfile=me.profile}catch{currentCompany=null;currentProfile=null}renderSession();if(currentProfile)await loadWorkerApplications();if($('profilesList'))loadProfiles();if($('applicationsList'))loadApplications();if($('companyDashboard'))loadCompanyDashboard();if($('subscriptionStatus'))loadCompanySubscription()}
+async function refreshSession(){try{const me=await api('/api/me');currentCompany=me.company;currentProfile=me.profile}catch{currentCompany=null;currentProfile=null}renderSession();if(currentProfile)await loadWorkerApplications();if($('profilesList'))loadProfiles();if($('applicationsList'))loadApplications();if($('companyDashboard'))loadCompanyDashboard();if($('subscriptionStatus'))loadCompanySubscription();if($('smartMatchList'))loadSmartMatches()}
 
 async function resendEmailVerification(userType,email){
   if(!email) email=prompt('Ingresa tu email registrado');
@@ -198,11 +200,16 @@ function renderSmartMatch(p){
     </div>
   </article>`;
 }
+async function populateMatchJobFilter(){const sel=$('matchJobFilter');if(!sel||sel.dataset.loaded)return;try{const d=await api('/api/company-dashboard');const jobs=d.jobs||[];sel.innerHTML='<option value="">Todas las ofertas recientes</option>'+jobs.map(j=>`<option value="${j.id}">${esc(j.titulo)} · ${esc(j.comuna||'')}, ${esc(j.region||'')}</option>`).join('');sel.dataset.loaded='1';}catch(e){sel.dataset.loaded='1';}}
 async function loadSmartMatches(){
   if(!$('smartMatchList')||!currentCompany)return;
   $('smartMatchList').innerHTML='<p class="muted">Calculando compatibilidad...</p>';
   try{
-    const d=await api('/api/recommendations');
+    await populateMatchJobFilter();
+    const params=new URLSearchParams();
+    const jobId=$('matchJobFilter')?.value||''; const minScore=$('matchMinScore')?.value||'';
+    if(jobId)params.set('job_id',jobId); if(minScore)params.set('min_score',minScore);
+    const d=await api('/api/recommendations'+(params.toString()?`?${params}`:''));
     $('smartMatchList').innerHTML=(d.recommendations||[]).map(renderSmartMatch).join('')||'<p>No hay recomendaciones todavía. Publica una oferta o guarda una búsqueda para mejorar el matching.</p>';
   }catch(err){ $('smartMatchList').innerHTML=`<div class="locked lock-sell"><strong>🔒 Matches automáticos bloqueados</strong><p>${err.message}</p><button class="btn tiny primary" onclick="changePlan('paid')">Activar Pagado</button></div>`; }
 }

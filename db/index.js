@@ -606,6 +606,34 @@ async function adminGetCompanyDocument(id){
   return {path:c.documento_empresa};
 }
 
+function companyAutoVerificationEligible(c){
+  const rut=String(c?.rut_empresa||'');
+  const legal=/(spa|s\.?p\.?a|ltda|limitada|eirl|e\.?i\.?r\.?l|s\.?a\.?|sociedad|cooperativa|fundaci[oó]n|corporaci[oó]n)/i.test(String(c?.razon_social||''));
+  const rutNum=Number(rut.replace(/\D/g,'').slice(0,-1));
+  const reasons=[];
+  if(!c?.email_verified) reasons.push('email no verificado');
+  if(!c?.documento_empresa) reasons.push('sin documento empresa');
+  if(!rut || !Number.isFinite(rutNum) || rutNum<50000000) reasons.push('RUT no parece jurídico');
+  if(!legal) reasons.push('razón social sin tipo legal claro');
+  if(!c?.region || !c?.comuna) reasons.push('ubicación incompleta');
+  if(!c?.whatsapp) reasons.push('WhatsApp faltante');
+  return {eligible:reasons.length===0,reasons};
+}
+async function adminAutoVerificationCandidates(){
+  const rows=await query(`SELECT id,nombre,razon_social,rut_empresa,region,comuna,email,whatsapp,documento_empresa,email_verified,verificada,created_at FROM companies WHERE verificada IS NOT TRUE ORDER BY id DESC LIMIT 300`);
+  return rows.map(c=>({ ...c, auto_verification:companyAutoVerificationEligible(c) }));
+}
+async function adminRunAutoVerification({dry_run=true}={}){
+  const candidates=await adminAutoVerificationCandidates();
+  const eligible=candidates.filter(c=>c.auto_verification?.eligible);
+  if(!dry_run){
+    for(const c of eligible){
+      await query('UPDATE companies SET verificada=$1 WHERE id=$2',[client==='postgres'?true:1,c.id]);
+      await trackEvent('company_auto_verified',{company_id:c.id,metadata:{reason:'email+document+legal_rut+legal_name'}});
+    }
+  }
+  return {dry_run:Boolean(dry_run),eligible_count:eligible.length,total_checked:candidates.length,candidates};
+}
 
 async function adminDeleteCompany(id){
   const existing=(await query('SELECT id,nombre,email FROM companies WHERE id=$1',[id]))[0];
@@ -726,7 +754,7 @@ async function recommendProfilesForCompany(companyId,opts={}){
     scoreParts.camion=p.tipo==='Dueño de camión'?truckComplianceScore(p.trucks||[]):0;
     const score=Math.max(0,Object.values(scoreParts).reduce((a,b)=>a+Number(b||0),0));
     return {...p,match_score:Math.round(score),match_reasons:matchReasons(p,{company,jobs,saved},scoreParts),score_breakdown:scoreParts};
-  }).sort((a,b)=>b.match_score-a.match_score || Number(b.verificado)-Number(a.verificado) || Number(b.reputation_rating||0)-Number(a.reputation_rating||0)).slice(0,Number(opts.limit||15));
+  }).filter(p=>p.match_score>=Number(opts.min_score||0)).sort((a,b)=>b.match_score-a.match_score || Number(b.verificado)-Number(a.verificado) || Number(b.reputation_rating||0)-Number(a.reputation_rating||0)).slice(0,Number(opts.limit||15));
   await trackEvent('smart_match_run',{company_id:companyId,metadata:{job_id:opts.job_id||null,results:ranked.length,top_score:ranked[0]?.match_score||0}});
   return ranked;
 }
@@ -822,4 +850,4 @@ async function seedIfEmpty(){
   }
   await ensureRichDemoData();
 }
-module.exports={client,createPasswordReset,resetPasswordByToken,adminAuditEvents,fraudSignals,createEmailVerification,verifyEmailToken,getEmailVerificationTarget,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,createPaymentAttempt,getPaymentByFlowToken,updatePaymentFromFlow,activateCompanyPaidFromPayment,listCompanyPayments,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
+module.exports={client,createPasswordReset,resetPasswordByToken,adminAuditEvents,fraudSignals,adminAutoVerificationCandidates,adminRunAutoVerification,createEmailVerification,verifyEmailToken,getEmailVerificationTarget,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,createPaymentAttempt,getPaymentByFlowToken,updatePaymentFromFlow,activateCompanyPaidFromPayment,listCompanyPayments,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};

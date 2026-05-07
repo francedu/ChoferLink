@@ -344,7 +344,7 @@ app.post('/api/password/reset',rateLimit('passwordReset',10,60*60*1000),async(re
 
 app.get('/api/company-subscription',requireCompany,async(req,res)=>res.json(await db.companySubscriptionStatus(req.company.id)));
 app.get('/api/company-dashboard',requireCompany,async(req,res)=>{ const perms=db.businessPermissions(req.company); const applications=await db.listApplicationsForCompany(req.company.id); const lockReason=!req.company.verificada?'verification_required':'paid_plan_required'; res.json({company:req.company,permissions:perms,business_rules:db.BUSINESS_RULES,metrics:await db.companyMetrics(req.company.id),saved_searches:await db.listSavedSearches(req.company.id),applications:perms.can_unlock_contacts?applications:applications.map(a=>maskApplicationContacts(a,lockReason)),jobs:await db.listCompanyJobs(req.company.id),favorites:perms.can_save_favorites?await db.listFavorites(req.company.id,req.company):[],contact_history:perms.can_unlock_contacts?await db.listContactHistory(req.company.id):[],notifications:await db.listNotifications('company',req.company.id),analytics:await db.analyticsSummary(req.company.id)}); });
-app.get('/api/recommendations',requireCompany,requireContactAccess,async(req,res)=>res.json({recommendations:await db.recommendProfilesForCompany(req.company.id,{region:req.query.region,licencia:req.query.licencia,job_id:req.query.job_id,limit:req.query.limit})}));
+app.get('/api/recommendations',requireCompany,requireContactAccess,async(req,res)=>res.json({recommendations:await db.recommendProfilesForCompany(req.company.id,{region:req.query.region,licencia:req.query.licencia,job_id:req.query.job_id,limit:req.query.limit,min_score:req.query.min_score})}));
 
 app.post('/api/events',async(req,res)=>{ const c=await db.getCompanyByToken(bearer(req)); const p=await db.getProfileByToken((req.headers['x-profile-token']||'').toString()); await db.trackEvent(clean(req.body.type||'frontend_event',60),{company_id:c?.id||null,profile_id:p?.id||null,target_type:clean(req.body.target_type||'',30),target_id:req.body.target_id||null,metadata:req.body.metadata||{}}); res.json({ok:true}); });
 app.get('/api/favorites',requireCompany,requireContactAccess,async(req,res)=>res.json(await db.listFavorites(req.company.id,req.company)));
@@ -463,6 +463,8 @@ app.post('/api/admin/logout', requireAdmin, async(req,res)=>{ const session=getA
 app.get('/api/admin/summary', requireAdmin, async(_req,res)=>res.json(await db.adminSummary()));
 app.get('/api/admin/audit-events', requireAdmin, async(req,res)=>res.json(await db.adminAuditEvents(req.query.limit||100)));
 app.get('/api/admin/fraud-signals', requireAdmin, async(_req,res)=>res.json(await db.fraudSignals()));
+app.get('/api/admin/auto-verification', requireAdmin, async(_req,res)=>res.json(await db.adminRunAutoVerification({dry_run:true})));
+app.post('/api/admin/auto-verification/run', requireAdmin, async(req,res)=>res.json(await db.adminRunAutoVerification({dry_run:req.body?.dry_run!==false?true:false})));
 app.get('/api/admin/companies', requireAdmin, async(req,res)=>res.json(await db.adminListCompanies({q:req.query.q,estado:req.query.estado})));
 app.get('/api/admin/profiles', requireAdmin, async(req,res)=>res.json(await db.adminListProfiles({q:req.query.q,estado:req.query.estado,tipo:req.query.tipo})));
 app.get('/api/admin/jobs', requireAdmin, async(_req,res)=>res.json(await db.adminListJobs()));
