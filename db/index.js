@@ -546,9 +546,16 @@ async function listPendingDocuments(){
 }
 async function adminSummary(){
   const one = async (sql,params=[]) => Number(((await query(sql,params))[0]||{}).total||0);
+  // Compatibilidad PostgreSQL/SQLite: en instalaciones antiguas algunas fechas quedaron como TEXT.
+  // PostgreSQL no permite comparar TEXT directamente contra TIMESTAMPTZ, por eso se castea de forma segura.
+  const dateExpr = col => client==='postgres' ? `(NULLIF(${col}::text,'')::timestamptz)` : col;
+  const since24h = client==='postgres' ? `CURRENT_TIMESTAMP - INTERVAL '24 hours'` : `datetime('now','-24 hours')`;
+  const since7d = client==='postgres' ? `CURRENT_TIMESTAMP - INTERVAL '7 days'` : `datetime('now','-7 days')`;
+  const nowExpr = client==='postgres' ? `CURRENT_TIMESTAMP` : `datetime('now')`;
+
   const companies=await one('SELECT COUNT(*) total FROM companies');
   const verifiedCompanies=await one('SELECT COUNT(*) total FROM companies WHERE verificada IS TRUE');
-  const paidCompanies=await one("SELECT COUNT(*) total FROM companies WHERE plan='paid' AND subscription_ends_at IS NOT NULL AND subscription_ends_at > CURRENT_TIMESTAMP");
+  const paidCompanies=await one(`SELECT COUNT(*) total FROM companies WHERE plan='paid' AND subscription_ends_at IS NOT NULL AND ${dateExpr('subscription_ends_at')} > ${nowExpr}`);
   const unverifiedCompanyEmails=await one('SELECT COUNT(*) total FROM companies WHERE email_verified IS NOT TRUE');
   const profiles=await one('SELECT COUNT(*) total FROM profiles');
   const verifiedProfiles=await one('SELECT COUNT(*) total FROM profiles WHERE verificado IS TRUE');
@@ -558,11 +565,11 @@ async function adminSummary(){
   const jobs=await one('SELECT COUNT(*) total FROM jobs');
   const openJobs=await one("SELECT COUNT(*) total FROM jobs WHERE COALESCE(estado,'abierto')='abierto'");
   const applications=await one('SELECT COUNT(*) total FROM applications');
-  const appsToday=await one("SELECT COUNT(*) total FROM applications WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'");
-  const eventsToday=await one("SELECT COUNT(*) total FROM events WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'");
-  const fraudAlerts=await one("SELECT COUNT(*) total FROM events WHERE type LIKE 'fraud_%' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'");
-  const failedLogins=await one("SELECT COUNT(*) total FROM events WHERE type IN ('login_failed_company','login_failed_profile','login_failed_admin') AND created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'");
-  const topEvents=await query("SELECT type,COUNT(*) total FROM events WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days' GROUP BY type ORDER BY COUNT(*) DESC LIMIT 8");
+  const appsToday=await one(`SELECT COUNT(*) total FROM applications WHERE ${dateExpr('created_at')} >= ${since24h}`);
+  const eventsToday=await one(`SELECT COUNT(*) total FROM events WHERE ${dateExpr('created_at')} >= ${since24h}`);
+  const fraudAlerts=await one(`SELECT COUNT(*) total FROM events WHERE type LIKE 'fraud_%' AND ${dateExpr('created_at')} >= ${since7d}`);
+  const failedLogins=await one(`SELECT COUNT(*) total FROM events WHERE type IN ('login_failed_company','login_failed_profile','login_failed_admin') AND ${dateExpr('created_at')} >= ${since24h}`);
+  const topEvents=await query(`SELECT type,COUNT(*) total FROM events WHERE ${dateExpr('created_at')} >= ${since7d} GROUP BY type ORDER BY COUNT(*) DESC LIMIT 8`);
   return {companies,verified_companies:verifiedCompanies,paid_companies:paidCompanies,unverified_company_emails:unverifiedCompanyEmails,profiles,verified_profiles:verifiedProfiles,unverified_profile_emails:unverifiedProfileEmails,pending_documents:pendingDocs,rejected_documents:rejectedDocs,jobs,open_jobs:openJobs,applications,applications_today:appsToday,events_today:eventsToday,fraud_alerts_7d:fraudAlerts,failed_logins_24h:failedLogins,top_events:topEvents.map(e=>({type:e.type,total:Number(e.total||0)}))};
 }
 async function adminListCompanies(f={}){
