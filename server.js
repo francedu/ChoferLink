@@ -4,6 +4,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const dns = require('dns');
 const multer = require('multer');
 let nodemailer = null;
 try { nodemailer = require('nodemailer'); } catch (_) { nodemailer = null; }
@@ -210,20 +211,26 @@ async function sendEmailViaSmtp({to,subject,html,text}){
   const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
   const pass = process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '';
 
+  const timeoutMs = Number(process.env.SMTP_TIMEOUT_MS || 60000);
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port,
     secure,
+    name: process.env.SMTP_CLIENT_NAME || 'choferlink.onrender.com',
     family: 4,
-    connectionTimeout: Number(process.env.SMTP_TIMEOUT_MS || 30000),
-    greetingTimeout: Number(process.env.SMTP_TIMEOUT_MS || 30000),
-    socketTimeout: Number(process.env.SMTP_TIMEOUT_MS || 30000),
+    connectionTimeout: timeoutMs,
+    greetingTimeout: timeoutMs,
+    socketTimeout: timeoutMs,
+    dnsLookup: (hostname, options, callback) => {
+      dns.lookup(hostname, { family: 4 }, callback);
+    },
     auth: process.env.SMTP_USER ? {
       user: process.env.SMTP_USER,
       pass
     } : undefined,
     tls: {
-      rejectUnauthorized: false
+      rejectUnauthorized: false,
+      servername: process.env.SMTP_HOST
     }
   });
   const from=process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER || 'ChoferLink <no-reply@choferlink.cl>';
