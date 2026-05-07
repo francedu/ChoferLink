@@ -35,9 +35,9 @@ async function tableExists(table){ if(client==='postgres') return Boolean((await
 async function ensureColumn(table,col,def){ if(client==='postgres'){ await query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${col} ${def}`); return; } const cols=await query(`PRAGMA table_info(${table})`); if(!cols.some(c=>c.name===col)) await query(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); }
 async function migrate(){
   if(client==='postgres'){
-    await query(`CREATE TABLE IF NOT EXISTS profiles(id SERIAL PRIMARY KEY,tipo TEXT NOT NULL,nombre TEXT NOT NULL,rut TEXT,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,licencia TEXT,experiencia INTEGER DEFAULT 0,especialidad TEXT NOT NULL,disponibilidad TEXT NOT NULL,verificado BOOLEAN DEFAULT FALSE,email TEXT,whatsapp TEXT NOT NULL,rutas TEXT,descripcion TEXT,documento_licencia TEXT,hoja_vida_conductor TEXT,licencia_vencimiento TEXT,documento_estado TEXT DEFAULT 'pendiente',password_hash TEXT,email_verified BOOLEAN DEFAULT FALSE,email_verification_token_hash TEXT,email_verification_expires_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())`);
+    await query(`CREATE TABLE IF NOT EXISTS profiles(id SERIAL PRIMARY KEY,tipo TEXT NOT NULL,nombre TEXT NOT NULL,rut TEXT,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,licencia TEXT,experiencia INTEGER DEFAULT 0,especialidad TEXT NOT NULL,disponibilidad TEXT NOT NULL,verificado BOOLEAN DEFAULT FALSE,email TEXT,whatsapp TEXT NOT NULL,rutas TEXT,descripcion TEXT,documento_licencia TEXT,hoja_vida_conductor TEXT,licencia_vencimiento TEXT,documento_estado TEXT DEFAULT 'pendiente',password_hash TEXT,email_verified BOOLEAN DEFAULT FALSE,email_verification_token_hash TEXT,email_verification_expires_at TIMESTAMPTZ,password_reset_token_hash TEXT,password_reset_expires_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())`);
     await query(`CREATE TABLE IF NOT EXISTS trucks(id SERIAL PRIMARY KEY,profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE,patente TEXT NOT NULL,tipo TEXT NOT NULL,marca_modelo TEXT,anio INTEGER,capacidad_toneladas TEXT,seguro_vigente TEXT,revision_tecnica TEXT,permiso_circulacion TEXT,soap TEXT,disponibilidad TEXT,documento_vehiculo TEXT,created_at TIMESTAMPTZ DEFAULT NOW())`);
-    await query(`CREATE TABLE IF NOT EXISTS companies(id SERIAL PRIMARY KEY,nombre TEXT NOT NULL,razon_social TEXT,rut_empresa TEXT,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,tipo_empresa TEXT NOT NULL,necesidad TEXT NOT NULL,email TEXT NOT NULL UNIQUE,whatsapp TEXT NOT NULL,password_hash TEXT NOT NULL,plan TEXT DEFAULT 'free',verificada BOOLEAN DEFAULT FALSE,rating REAL DEFAULT 4.2,tamano_empresa TEXT,sitio_web TEXT,descripcion TEXT,documento_empresa TEXT,email_verified BOOLEAN DEFAULT FALSE,email_verification_token_hash TEXT,email_verification_expires_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())`);
+    await query(`CREATE TABLE IF NOT EXISTS companies(id SERIAL PRIMARY KEY,nombre TEXT NOT NULL,razon_social TEXT,rut_empresa TEXT,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,tipo_empresa TEXT NOT NULL,necesidad TEXT NOT NULL,email TEXT NOT NULL UNIQUE,whatsapp TEXT NOT NULL,password_hash TEXT NOT NULL,plan TEXT DEFAULT 'free',verificada BOOLEAN DEFAULT FALSE,rating REAL DEFAULT 4.2,tamano_empresa TEXT,sitio_web TEXT,descripcion TEXT,documento_empresa TEXT,email_verified BOOLEAN DEFAULT FALSE,email_verification_token_hash TEXT,email_verification_expires_at TIMESTAMPTZ,password_reset_token_hash TEXT,password_reset_expires_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())`);
     await query(`CREATE TABLE IF NOT EXISTS company_sessions(token TEXT PRIMARY KEY,company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,created_at TIMESTAMPTZ DEFAULT NOW())`);
     await query(`CREATE TABLE IF NOT EXISTS profile_sessions(token TEXT PRIMARY KEY,profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE,created_at TIMESTAMPTZ DEFAULT NOW())`);
     await query(`CREATE TABLE IF NOT EXISTS jobs(id SERIAL PRIMARY KEY,company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,titulo TEXT NOT NULL,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,licencia TEXT NOT NULL,salario TEXT,descripcion TEXT NOT NULL,estado TEXT DEFAULT 'abierto',max_applications INTEGER DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW())`);
@@ -51,9 +51,9 @@ async function migrate(){
     await query(`CREATE TABLE IF NOT EXISTS notifications(id SERIAL PRIMARY KEY,user_type TEXT NOT NULL,user_id INTEGER NOT NULL,title TEXT NOT NULL,message TEXT NOT NULL,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())`);
     await query(`CREATE TABLE IF NOT EXISTS payments(id SERIAL PRIMARY KEY,company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,provider TEXT NOT NULL DEFAULT 'flow',amount INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'CLP',status TEXT NOT NULL DEFAULT 'pending',commerce_order TEXT UNIQUE,flow_token TEXT UNIQUE,flow_order TEXT,raw_response TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),paid_at TIMESTAMPTZ)`);
   } else {
-    await query(`CREATE TABLE IF NOT EXISTS profiles(id INTEGER PRIMARY KEY AUTOINCREMENT,tipo TEXT NOT NULL,nombre TEXT NOT NULL,rut TEXT,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,licencia TEXT,experiencia INTEGER DEFAULT 0,especialidad TEXT NOT NULL,disponibilidad TEXT NOT NULL,verificado INTEGER DEFAULT 0,email TEXT,whatsapp TEXT NOT NULL,rutas TEXT,descripcion TEXT,documento_licencia TEXT,hoja_vida_conductor TEXT,licencia_vencimiento TEXT,documento_estado TEXT DEFAULT 'pendiente',password_hash TEXT,email_verified INTEGER DEFAULT 0,email_verification_token_hash TEXT,email_verification_expires_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    await query(`CREATE TABLE IF NOT EXISTS profiles(id INTEGER PRIMARY KEY AUTOINCREMENT,tipo TEXT NOT NULL,nombre TEXT NOT NULL,rut TEXT,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,licencia TEXT,experiencia INTEGER DEFAULT 0,especialidad TEXT NOT NULL,disponibilidad TEXT NOT NULL,verificado INTEGER DEFAULT 0,email TEXT,whatsapp TEXT NOT NULL,rutas TEXT,descripcion TEXT,documento_licencia TEXT,hoja_vida_conductor TEXT,licencia_vencimiento TEXT,documento_estado TEXT DEFAULT 'pendiente',password_hash TEXT,email_verified INTEGER DEFAULT 0,email_verification_token_hash TEXT,email_verification_expires_at TEXT,password_reset_token_hash TEXT,password_reset_expires_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
     await query(`CREATE TABLE IF NOT EXISTS trucks(id INTEGER PRIMARY KEY AUTOINCREMENT,profile_id INTEGER NOT NULL,patente TEXT NOT NULL,tipo TEXT NOT NULL,marca_modelo TEXT,anio INTEGER,capacidad_toneladas TEXT,seguro_vigente TEXT,revision_tecnica TEXT,permiso_circulacion TEXT,soap TEXT,disponibilidad TEXT,documento_vehiculo TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE)`);
-    await query(`CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY AUTOINCREMENT,nombre TEXT NOT NULL,razon_social TEXT,rut_empresa TEXT,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,tipo_empresa TEXT NOT NULL,necesidad TEXT NOT NULL,email TEXT NOT NULL UNIQUE,whatsapp TEXT NOT NULL,password_hash TEXT NOT NULL,plan TEXT DEFAULT 'free',verificada INTEGER DEFAULT 0,rating REAL DEFAULT 4.2,tamano_empresa TEXT,sitio_web TEXT,descripcion TEXT,documento_empresa TEXT,email_verified INTEGER DEFAULT 0,email_verification_token_hash TEXT,email_verification_expires_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    await query(`CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY AUTOINCREMENT,nombre TEXT NOT NULL,razon_social TEXT,rut_empresa TEXT,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,tipo_empresa TEXT NOT NULL,necesidad TEXT NOT NULL,email TEXT NOT NULL UNIQUE,whatsapp TEXT NOT NULL,password_hash TEXT NOT NULL,plan TEXT DEFAULT 'free',verificada INTEGER DEFAULT 0,rating REAL DEFAULT 4.2,tamano_empresa TEXT,sitio_web TEXT,descripcion TEXT,documento_empresa TEXT,email_verified INTEGER DEFAULT 0,email_verification_token_hash TEXT,email_verification_expires_at TEXT,password_reset_token_hash TEXT,password_reset_expires_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
     await query(`CREATE TABLE IF NOT EXISTS company_sessions(token TEXT PRIMARY KEY,company_id INTEGER NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE)`);
     await query(`CREATE TABLE IF NOT EXISTS profile_sessions(token TEXT PRIMARY KEY,profile_id INTEGER NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE)`);
     await query(`CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,company_id INTEGER NOT NULL,titulo TEXT NOT NULL,region TEXT,comuna TEXT,ubicacion TEXT NOT NULL,licencia TEXT NOT NULL,salario TEXT,descripcion TEXT NOT NULL,estado TEXT DEFAULT 'abierto',max_applications INTEGER DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE)`);
@@ -70,7 +70,7 @@ async function migrate(){
   await migrateExisting();
 }
 async function migrateExisting(){
-  if(await tableExists('profiles')) for(const [c,d] of Object.entries({rut:'TEXT',region:'TEXT',comuna:'TEXT',rutas:'TEXT',descripcion:'TEXT',documento_estado:`TEXT DEFAULT 'pendiente'`,especialidad:`TEXT DEFAULT 'General'`,hoja_vida_conductor:'TEXT',licencia_vencimiento:'TEXT',password_hash:'TEXT',email_verified:(client==='postgres'?'BOOLEAN DEFAULT FALSE':'INTEGER DEFAULT 0'),email_verification_token_hash:'TEXT',email_verification_expires_at:(client==='postgres'?'TIMESTAMPTZ':'TEXT')})) await ensureColumn('profiles',c,d);
+  if(await tableExists('profiles')) for(const [c,d] of Object.entries({rut:'TEXT',region:'TEXT',comuna:'TEXT',rutas:'TEXT',descripcion:'TEXT',documento_estado:`TEXT DEFAULT 'pendiente'`,especialidad:`TEXT DEFAULT 'General'`,hoja_vida_conductor:'TEXT',licencia_vencimiento:'TEXT',password_hash:'TEXT',email_verified:(client==='postgres'?'BOOLEAN DEFAULT FALSE':'INTEGER DEFAULT 0'),email_verification_token_hash:'TEXT',email_verification_expires_at:(client==='postgres'?'TIMESTAMPTZ':'TEXT'),password_reset_token_hash:'TEXT',password_reset_expires_at:(client==='postgres'?'TIMESTAMPTZ':'TEXT')})) await ensureColumn('profiles',c,d);
   if(await tableExists('applications')){
     for(const [c,d] of Object.entries({profile_id:'INTEGER',status:"TEXT DEFAULT 'nuevo'"})) await ensureColumn('applications',c,d);
     await query('DELETE FROM applications WHERE profile_id IS NOT NULL AND id NOT IN (SELECT MIN(id) FROM applications WHERE profile_id IS NOT NULL GROUP BY job_id,profile_id)');
@@ -81,7 +81,7 @@ async function migrateExisting(){
     else await query(`CREATE TABLE IF NOT EXISTS profile_sessions(token TEXT PRIMARY KEY,profile_id INTEGER NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE)`);
   }
   if(await tableExists('trucks')) for(const [c,d] of Object.entries({revision_tecnica:'TEXT',permiso_circulacion:'TEXT',soap:'TEXT'})) await ensureColumn('trucks',c,d);
-  if(await tableExists('companies')) for(const [c,d] of Object.entries({rut_empresa:'TEXT',razon_social:'TEXT',region:'TEXT',comuna:'TEXT',rating:'REAL DEFAULT 4.2',tamano_empresa:'TEXT',sitio_web:'TEXT',descripcion:'TEXT',documento_empresa:'TEXT',subscription_started_at:'TEXT',subscription_ends_at:'TEXT',cancel_at_period_end:'INTEGER DEFAULT 0',email_verified:(client==='postgres'?'BOOLEAN DEFAULT FALSE':'INTEGER DEFAULT 0'),email_verification_token_hash:'TEXT',email_verification_expires_at:(client==='postgres'?'TIMESTAMPTZ':'TEXT')})) await ensureColumn('companies',c,d);
+  if(await tableExists('companies')) for(const [c,d] of Object.entries({rut_empresa:'TEXT',razon_social:'TEXT',region:'TEXT',comuna:'TEXT',rating:'REAL DEFAULT 4.2',tamano_empresa:'TEXT',sitio_web:'TEXT',descripcion:'TEXT',documento_empresa:'TEXT',subscription_started_at:'TEXT',subscription_ends_at:'TEXT',cancel_at_period_end:'INTEGER DEFAULT 0',email_verified:(client==='postgres'?'BOOLEAN DEFAULT FALSE':'INTEGER DEFAULT 0'),email_verification_token_hash:'TEXT',email_verification_expires_at:(client==='postgres'?'TIMESTAMPTZ':'TEXT'),password_reset_token_hash:'TEXT',password_reset_expires_at:(client==='postgres'?'TIMESTAMPTZ':'TEXT')})) await ensureColumn('companies',c,d);
   if(await tableExists('companies')){ const now=iso(new Date()), end=iso(addDays(new Date(),30)); await query("UPDATE companies SET plan='paid',subscription_started_at=COALESCE(subscription_started_at,$1),subscription_ends_at=COALESCE(subscription_ends_at,$2),cancel_at_period_end=COALESCE(cancel_at_period_end,0) WHERE plan IN ('pro','premium')",[now,end]); await query("UPDATE companies SET plan='free' WHERE plan IS NULL OR plan NOT IN ('free','paid')"); const rows=await query("SELECT id,rut_empresa FROM companies WHERE rut_empresa IS NOT NULL AND rut_empresa<>''"); for(const row of rows){ try{ const normalized=normalizeCompanyRut(row.rut_empresa); if(normalized!==row.rut_empresa) await query('UPDATE companies SET rut_empresa=$1 WHERE id=$2',[normalized,row.id]); }catch(_){ /* no bloquear migración por datos antiguos inválidos */ } } }
   if(await tableExists('jobs')) for(const [c,d] of Object.entries({region:'TEXT',comuna:'TEXT',max_applications:'INTEGER DEFAULT 0'})) await ensureColumn('jobs',c,d);
   if(await tableExists('reviews')) for(const [c,d] of Object.entries({target_type:'TEXT',target_id:'INTEGER',from_company_id:'INTEGER',reviewer_name:'TEXT',reviewer_type:'TEXT',rating:'INTEGER DEFAULT 5',criterio_1:'INTEGER DEFAULT 0',criterio_2:'INTEGER DEFAULT 0',criterio_3:'INTEGER DEFAULT 0',comment:'TEXT',response:'TEXT',status:"TEXT DEFAULT 'publicada'",application_id:'INTEGER',reviewer_profile_id:'INTEGER'})) await ensureColumn('reviews',c,d);
@@ -130,6 +130,8 @@ async function ensureIndexes(){
     'CREATE INDEX IF NOT EXISTS idx_application_history_app ON application_status_history(application_id)',
     'CREATE INDEX IF NOT EXISTS idx_reviews_target ON reviews(target_type,target_id)',
     'CREATE INDEX IF NOT EXISTS idx_events_company_type ON events(company_id,type)',
+    'CREATE INDEX IF NOT EXISTS idx_events_type_created ON events(type,created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_events_profile_type ON events(profile_id,type)',
     'CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_type,user_id,read_at)',
     'CREATE INDEX IF NOT EXISTS idx_favorites_company ON favorites(company_id)',
     'CREATE INDEX IF NOT EXISTS idx_contact_company ON contact_history(company_id)',
@@ -543,15 +545,25 @@ async function listPendingDocuments(){
   return query(`SELECT id,tipo,nombre,rut,region,comuna,licencia,licencia_vencimiento,documento_estado,created_at FROM profiles WHERE documento_estado='pendiente' AND (documento_licencia<>'' OR hoja_vida_conductor<>'') ORDER BY id DESC LIMIT 100`);
 }
 async function adminSummary(){
-  const companies=await query('SELECT COUNT(*) total FROM companies');
-  const verifiedCompanies=await query('SELECT COUNT(*) total FROM companies WHERE verificada IS TRUE');
-  const profiles=await query('SELECT COUNT(*) total FROM profiles');
-  const verifiedProfiles=await query('SELECT COUNT(*) total FROM profiles WHERE verificado IS TRUE');
-  const pendingDocs=await query("SELECT COUNT(*) total FROM profiles WHERE documento_estado='pendiente' AND (documento_licencia<>'' OR hoja_vida_conductor<>'')");
-  const rejectedDocs=await query("SELECT COUNT(*) total FROM profiles WHERE documento_estado='rechazado'");
-  const jobs=await query('SELECT COUNT(*) total FROM jobs');
-  const applications=await query('SELECT COUNT(*) total FROM applications');
-  return {companies:Number(companies[0].total),verified_companies:Number(verifiedCompanies[0].total),profiles:Number(profiles[0].total),verified_profiles:Number(verifiedProfiles[0].total),pending_documents:Number(pendingDocs[0].total),rejected_documents:Number(rejectedDocs[0].total),jobs:Number(jobs[0].total),applications:Number(applications[0].total)};
+  const one = async (sql,params=[]) => Number(((await query(sql,params))[0]||{}).total||0);
+  const companies=await one('SELECT COUNT(*) total FROM companies');
+  const verifiedCompanies=await one('SELECT COUNT(*) total FROM companies WHERE verificada IS TRUE');
+  const paidCompanies=await one("SELECT COUNT(*) total FROM companies WHERE plan='paid' AND subscription_ends_at IS NOT NULL AND subscription_ends_at > CURRENT_TIMESTAMP");
+  const unverifiedCompanyEmails=await one('SELECT COUNT(*) total FROM companies WHERE email_verified IS NOT TRUE');
+  const profiles=await one('SELECT COUNT(*) total FROM profiles');
+  const verifiedProfiles=await one('SELECT COUNT(*) total FROM profiles WHERE verificado IS TRUE');
+  const unverifiedProfileEmails=await one('SELECT COUNT(*) total FROM profiles WHERE email_verified IS NOT TRUE');
+  const pendingDocs=await one("SELECT COUNT(*) total FROM profiles WHERE documento_estado='pendiente' AND (documento_licencia<>'' OR hoja_vida_conductor<>'')");
+  const rejectedDocs=await one("SELECT COUNT(*) total FROM profiles WHERE documento_estado='rechazado'");
+  const jobs=await one('SELECT COUNT(*) total FROM jobs');
+  const openJobs=await one("SELECT COUNT(*) total FROM jobs WHERE COALESCE(estado,'abierto')='abierto'");
+  const applications=await one('SELECT COUNT(*) total FROM applications');
+  const appsToday=await one("SELECT COUNT(*) total FROM applications WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'");
+  const eventsToday=await one("SELECT COUNT(*) total FROM events WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'");
+  const fraudAlerts=await one("SELECT COUNT(*) total FROM events WHERE type LIKE 'fraud_%' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'");
+  const failedLogins=await one("SELECT COUNT(*) total FROM events WHERE type IN ('login_failed_company','login_failed_profile','login_failed_admin') AND created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'");
+  const topEvents=await query("SELECT type,COUNT(*) total FROM events WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days' GROUP BY type ORDER BY COUNT(*) DESC LIMIT 8");
+  return {companies,verified_companies:verifiedCompanies,paid_companies:paidCompanies,unverified_company_emails:unverifiedCompanyEmails,profiles,verified_profiles:verifiedProfiles,unverified_profile_emails:unverifiedProfileEmails,pending_documents:pendingDocs,rejected_documents:rejectedDocs,jobs,open_jobs:openJobs,applications,applications_today:appsToday,events_today:eventsToday,fraud_alerts_7d:fraudAlerts,failed_logins_24h:failedLogins,top_events:topEvents.map(e=>({type:e.type,total:Number(e.total||0)}))};
 }
 async function adminListCompanies(f={}){
   const where=[],params=[];
@@ -620,6 +632,48 @@ async function adminGetProfileDocument(id,kind){
   return {path: kind==='hoja-vida'?p.hoja_vida_conductor:p.documento_licencia};
 }
 
+
+async function createPasswordReset(userType,email){
+  userType=String(userType||'company').toLowerCase()==='profile'?'profile':'company';
+  const table=userType==='profile'?'profiles':'companies';
+  const row=(await query(`SELECT id,email,nombre FROM ${table} WHERE LOWER(email)=LOWER($1)`,[String(email||'')]))[0];
+  if(!row) return null;
+  const token=makeToken();
+  const tokenHash=crypto.createHash('sha256').update(token).digest('hex');
+  const expires=iso(addDays(new Date(),1));
+  await query(`UPDATE ${table} SET password_reset_token_hash=$1,password_reset_expires_at=$2 WHERE id=$3`,[tokenHash,expires,row.id]);
+  await trackEvent('password_reset_requested',{[userType==='profile'?'profile_id':'company_id']:row.id,metadata:{email:row.email,user_type:userType}});
+  return {user_type:userType,id:row.id,email:row.email,nombre:row.nombre,token,expires_at:expires};
+}
+async function resetPasswordByToken(token,newPassword){
+  if(!token || String(newPassword||'').length<6) throw new Error('Token inválido o contraseña demasiado corta.');
+  const hash=crypto.createHash('sha256').update(String(token)).digest('hex');
+  for(const cfg of [{type:'company',table:'companies',session:'company_sessions',fk:'company_id'},{type:'profile',table:'profiles',session:'profile_sessions',fk:'profile_id'}]){
+    const row=(await query(`SELECT id,email,password_reset_expires_at FROM ${cfg.table} WHERE password_reset_token_hash=$1`,[hash]))[0];
+    if(row){
+      if(row.password_reset_expires_at && new Date(row.password_reset_expires_at).getTime()<Date.now()) throw new Error('El enlace de recuperación venció. Solicita uno nuevo.');
+      await query(`UPDATE ${cfg.table} SET password_hash=$1,password_reset_token_hash=NULL,password_reset_expires_at=NULL WHERE id=$2`,[hpw(newPassword),row.id]);
+      await query(`DELETE FROM ${cfg.session} WHERE ${cfg.fk}=$1`,[row.id]);
+      await trackEvent('password_reset_completed',{[cfg.type==='profile'?'profile_id':'company_id']:row.id,metadata:{email:row.email,user_type:cfg.type}});
+      return {ok:true,user_type:cfg.type,email:row.email};
+    }
+  }
+  throw new Error('Enlace de recuperación inválido.');
+}
+async function adminAuditEvents(limit=100){
+  const n=Math.min(Math.max(Number(limit)||100,1),300);
+  const rows=await query(`SELECT e.*,c.nombre company_name,c.email company_email,p.nombre profile_name,p.email profile_email FROM events e LEFT JOIN companies c ON c.id=e.company_id LEFT JOIN profiles p ON p.id=e.profile_id ORDER BY e.id DESC LIMIT $1`,[n]);
+  return rows.map(r=>({...r,metadata:typeof r.metadata==='string'?safeJson(r.metadata):r.metadata}));
+}
+function safeJson(v){ try{return JSON.parse(v||'{}')}catch{return {raw:v}} }
+async function fraudSignals(){
+  const recent=await query(`SELECT * FROM events WHERE type LIKE 'fraud_%' OR type IN ('login_failed_company','login_failed_profile','login_failed_admin','password_reset_requested') ORDER BY id DESC LIMIT 100`);
+  const duplicateCompanyEmail=await query(`SELECT LOWER(email) email,COUNT(*) total FROM companies GROUP BY LOWER(email) HAVING COUNT(*)>1 LIMIT 20`);
+  const duplicateProfileEmail=await query(`SELECT LOWER(email) email,COUNT(*) total FROM profiles WHERE email<>'' GROUP BY LOWER(email) HAVING COUNT(*)>1 LIMIT 20`);
+  const duplicatePhones=await query(`SELECT whatsapp,COUNT(*) total FROM (SELECT whatsapp FROM companies UNION ALL SELECT whatsapp FROM profiles) x WHERE whatsapp<>'' GROUP BY whatsapp HAVING COUNT(*)>1 LIMIT 20`);
+  return {recent:recent.map(r=>({...r,metadata:typeof r.metadata==='string'?safeJson(r.metadata):r.metadata})),duplicates:{company_emails:duplicateCompanyEmail,profile_emails:duplicateProfileEmail,phones:duplicatePhones}};
+}
+
 async function reputationSummary(){ const topProfiles=await query(`SELECT p.id,p.tipo,p.nombre,p.region,p.comuna,p.licencia,p.especialidad,p.verificado,AVG(r.rating) rating,COUNT(r.id) reviews_count FROM profiles p JOIN reviews r ON r.target_type='profile' AND r.target_id=p.id GROUP BY p.id HAVING COUNT(r.id)>0 ORDER BY rating DESC,reviews_count DESC LIMIT 5`); const topCompanies=await query(`SELECT c.id,c.nombre,c.tipo_empresa,c.region,c.comuna,c.verificada,AVG(r.rating) rating,COUNT(r.id) reviews_count FROM companies c JOIN reviews r ON r.target_type='company' AND r.target_id=c.id GROUP BY c.id HAVING COUNT(r.id)>0 ORDER BY rating DESC,reviews_count DESC LIMIT 5`); return {topProfiles:topProfiles.map(x=>({...x,verificado:Boolean(x.verificado),rating:Number(x.rating||0),reviews_count:Number(x.reviews_count||0)})),topCompanies:topCompanies.map(x=>({...x,verificada:Boolean(x.verificada),rating:Number(x.rating||0),reviews_count:Number(x.reviews_count||0)}))}; }
 
 function normText(v){ return String(v||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
@@ -631,31 +685,42 @@ function matchReasons(p,ctx,scoreParts){ const r=[]; if(scoreParts.region>0) r.p
 async function recommendProfilesForCompany(companyId,opts={}){
   const company=(await query('SELECT * FROM companies WHERE id=$1',[companyId]))[0];
   if(!company) return [];
-  const jobs=await query('SELECT * FROM jobs WHERE company_id=$1 ORDER BY id DESC LIMIT 5',[companyId]);
+  let jobs=[];
+  if(opts.job_id){
+    jobs=await query('SELECT * FROM jobs WHERE company_id=$1 AND id=$2',[companyId,opts.job_id]);
+  }
+  if(!jobs.length) jobs=await query('SELECT * FROM jobs WHERE company_id=$1 ORDER BY id DESC LIMIT 5',[companyId]);
   const saved=await query('SELECT * FROM saved_searches WHERE company_id=$1 ORDER BY id DESC LIMIT 5',[companyId]);
   const targetRegions=uniq([opts.region,company.region,...jobs.map(j=>j.region),...saved.map(x=>x.region)]);
   const targetComunas=uniq([company.comuna,...jobs.map(j=>j.comuna)]);
   const targetLicenses=uniq([opts.licencia,...jobs.map(j=>j.licencia),...saved.map(x=>x.licencia)].filter(x=>x&&x!=='todos'));
-  const rawText=[company.necesidad,company.tipo_empresa,company.descripcion,...jobs.flatMap(j=>[j.titulo,j.descripcion]),...saved.map(s=>s.q)].join(' ');
-  const specialtyWords=uniq(['mineria','minera','faena','puerto','contenedor','forestal','refrigerado','frigorifico','carga peligrosa','retail','distribucion','nacional','internacional','carga pesada','rampla','tolva','aljibe'].filter(w=>containsAny(rawText,[w])));
+  const rawText=[company.necesidad,company.tipo_empresa,company.descripcion,...jobs.flatMap(j=>[j.titulo,j.descripcion,j.licencia]),...saved.map(s=>s.q)].join(' ');
+  const preferredTypes=[];
+  const nt=normText(rawText);
+  if(nt.includes('chofer')) preferredTypes.push('Chofer');
+  if(nt.includes('peoneta')) preferredTypes.push('Peoneta');
+  if(nt.includes('dueno')||nt.includes('dueño')||nt.includes('camion')||nt.includes('camión')) preferredTypes.push('Dueño de camión');
+  const specialtyWords=uniq(['mineria','minera','faena','puerto','contenedor','forestal','refrigerado','frigorifico','carga peligrosa','retail','distribucion','nacional','internacional','carga pesada','rampla','tolva','aljibe','ultima milla','bodega','ruta'].filter(w=>containsAny(rawText,[w])));
   const profilesResult=await listProfiles({limit:1000},company);
   const profiles=profilesResult.profiles||[];
   const ranked=profiles.map(p=>{
     const scoreParts={};
-    scoreParts.region=targetRegions.includes(p.region)?25:0;
-    scoreParts.comuna=targetComunas.includes(p.comuna)?15:0;
-    scoreParts.licencia=(targetLicenses.length && targetLicenses.includes(p.licencia))?22:0;
-    const profileText=[p.especialidad,p.rutas,p.descripcion,p.tipo,(p.trucks||[]).map(t=>[t.tipo,t.marca_modelo,t.disponibilidad].join(' ')).join(' ')].join(' ');
-    scoreParts.especialidad=specialtyWords.length && containsAny(profileText,specialtyWords)?16:0;
+    scoreParts.tipo=preferredTypes.includes(p.tipo)?18:0;
+    scoreParts.region=targetRegions.includes(p.region)?24:0;
+    scoreParts.comuna=targetComunas.includes(p.comuna)?14:0;
+    scoreParts.licencia=(targetLicenses.length && targetLicenses.includes(p.licencia))?26:(!targetLicenses.length?4:-8);
+    const profileText=[p.especialidad,p.rutas,p.descripcion,p.tipo,(p.trucks||[]).map(t=>[t.tipo,t.marca_modelo,t.disponibilidad,t.capacidad_toneladas].join(' ')).join(' ')].join(' ');
+    scoreParts.especialidad=specialtyWords.length && containsAny(profileText,specialtyWords)?18:0;
     scoreParts.disponibilidad=availabilityScore(p.disponibilidad);
-    scoreParts.rating=Math.min(12,Number(p.reputation_rating||0)*2.4);
+    scoreParts.rating=Math.min(14,Number(p.reputation_rating||0)*2.8);
     scoreParts.verificado=p.verificado?12:0;
-    scoreParts.experiencia=Math.min(10,Math.max(0,Number(p.experiencia||0))/2);
-    scoreParts.documentos=(p.documento_estado==='aprobado'||p.documento_licencia||p.hoja_vida_conductor)?5:0;
+    scoreParts.experiencia=Math.min(12,Math.max(0,Number(p.experiencia||0))*0.75);
+    scoreParts.documentos=(p.documento_estado==='aprobado'||p.documento_licencia||p.hoja_vida_conductor)?6:0;
     scoreParts.camion=p.tipo==='Dueño de camión'?truckComplianceScore(p.trucks||[]):0;
-    const score=Object.values(scoreParts).reduce((a,b)=>a+Number(b||0),0);
+    const score=Math.max(0,Object.values(scoreParts).reduce((a,b)=>a+Number(b||0),0));
     return {...p,match_score:Math.round(score),match_reasons:matchReasons(p,{company,jobs,saved},scoreParts),score_breakdown:scoreParts};
-  }).sort((a,b)=>b.match_score-a.match_score || Number(b.reputation_rating||0)-Number(a.reputation_rating||0)).slice(0,10);
+  }).sort((a,b)=>b.match_score-a.match_score || Number(b.verificado)-Number(a.verificado) || Number(b.reputation_rating||0)-Number(a.reputation_rating||0)).slice(0,Number(opts.limit||15));
+  await trackEvent('smart_match_run',{company_id:companyId,metadata:{job_id:opts.job_id||null,results:ranked.length,top_score:ranked[0]?.match_score||0}});
   return ranked;
 }
 
@@ -750,4 +815,4 @@ async function seedIfEmpty(){
   }
   await ensureRichDemoData();
 }
-module.exports={client,createEmailVerification,verifyEmailToken,getEmailVerificationTarget,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,createPaymentAttempt,getPaymentByFlowToken,updatePaymentFromFlow,activateCompanyPaidFromPayment,listCompanyPayments,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
+module.exports={client,createPasswordReset,resetPasswordByToken,adminAuditEvents,fraudSignals,createEmailVerification,verifyEmailToken,getEmailVerificationTarget,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,createPaymentAttempt,getPaymentByFlowToken,updatePaymentFromFlow,activateCompanyPaidFromPayment,listCompanyPayments,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
