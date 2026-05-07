@@ -463,8 +463,6 @@ app.post('/api/admin/logout', requireAdmin, async(req,res)=>{ const session=getA
 app.get('/api/admin/summary', requireAdmin, async(_req,res)=>res.json(await db.adminSummary()));
 app.get('/api/admin/audit-events', requireAdmin, async(req,res)=>res.json(await db.adminAuditEvents(req.query.limit||100)));
 app.get('/api/admin/fraud-signals', requireAdmin, async(_req,res)=>res.json(await db.fraudSignals()));
-app.get('/api/admin/company-verification-candidates', requireAdmin, async(_req,res)=>res.json(await db.adminCompanyVerificationCandidates()));
-app.post('/api/admin/auto-verify-companies', requireAdmin, async(req,res)=>res.json(await db.adminAutoVerifyCompanies({dry_run:req.body?.dry_run!==false})));
 app.get('/api/admin/companies', requireAdmin, async(req,res)=>res.json(await db.adminListCompanies({q:req.query.q,estado:req.query.estado})));
 app.get('/api/admin/profiles', requireAdmin, async(req,res)=>res.json(await db.adminListProfiles({q:req.query.q,estado:req.query.estado,tipo:req.query.tipo})));
 app.get('/api/admin/jobs', requireAdmin, async(_req,res)=>res.json(await db.adminListJobs()));

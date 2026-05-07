@@ -600,32 +600,6 @@ async function adminUpdateCompanyVerification(id,data={}){
   if(data.plan!==undefined) await updateCompanyPlan(id,data.plan);
   return (await adminListCompanies({q:''})).find(x=>String(x.id)===String(id));
 }
-
-function companyVerificationScore(c){
-  let score=0; const reasons=[];
-  if(c?.email_verified){ score+=25; reasons.push('email verificado'); }
-  if(c?.documento_empresa){ score+=25; reasons.push('documento cargado'); }
-  if(isValidRut(c?.rut_empresa) && Number(normalizeCompanyRut(c.rut_empresa).replace(/\D/g,'').slice(0,-1))>=50000000){ score+=20; reasons.push('RUT jurídico válido'); }
-  if(/\b(spa|s\.?p\.?a\.?|ltda\.?|limitada|eirl|e\.?i\.?r\.?l\.?|s\.?a\.?|sociedad anonima|sociedad por acciones)\b/i.test(String(c?.razon_social||''))){ score+=15; reasons.push('razón social con tipo legal'); }
-  if(c?.region && c?.comuna && c?.whatsapp){ score+=10; reasons.push('datos de contacto completos'); }
-  if(String(c?.email||'').toLowerCase().endsWith('@gmail.com') || String(c?.email||'').toLowerCase().endsWith('@hotmail.com') || String(c?.email||'').toLowerCase().endsWith('@outlook.com')){ score-=5; reasons.push('email genérico: revisar manualmente'); }
-  return {score:Math.max(0,Math.min(100,score)),reasons,auto_eligible:score>=80 && Boolean(c?.email_verified) && Boolean(c?.documento_empresa)};
-}
-async function adminCompanyVerificationCandidates(){
-  const rows=await query(`SELECT id,nombre,razon_social,rut_empresa,email,whatsapp,region,comuna,documento_empresa,email_verified,verificada,created_at FROM companies WHERE verificada IS NOT TRUE ORDER BY id DESC LIMIT 200`);
-  return rows.map(c=>({...c,verificada:Boolean(c.verificada),email_verified:Boolean(c.email_verified),verification:companyVerificationScore(c)}));
-}
-async function adminAutoVerifyCompanies({dry_run=true}={}){
-  const candidates=await adminCompanyVerificationCandidates();
-  const eligible=candidates.filter(c=>c.verification.auto_eligible);
-  if(!dry_run){
-    for(const c of eligible){
-      await query('UPDATE companies SET verificada=$1 WHERE id=$2',[client==='postgres'?true:1,c.id]);
-      await trackEvent('company_auto_verified',{company_id:c.id,metadata:{score:c.verification.score,reasons:c.verification.reasons}});
-    }
-  }
-  return {dry_run:Boolean(dry_run),eligible_count:eligible.length,candidates:eligible};
-}
 async function adminGetCompanyDocument(id){
   const c=(await query('SELECT documento_empresa,email_verified FROM companies WHERE id=$1',[id]))[0];
   if(!c) return null;
@@ -748,14 +722,11 @@ async function recommendProfilesForCompany(companyId,opts={}){
     scoreParts.rating=Math.min(14,Number(p.reputation_rating||0)*2.8);
     scoreParts.verificado=p.verificado?12:0;
     scoreParts.experiencia=Math.min(12,Math.max(0,Number(p.experiencia||0))*0.75);
-    scoreParts.documentos=(p.documento_estado==='aprobado'||p.documento_licencia||p.hoja_vida_conductor)?8:0;
+    scoreParts.documentos=(p.documento_estado==='aprobado'||p.documento_licencia||p.hoja_vida_conductor)?6:0;
     scoreParts.camion=p.tipo==='Dueño de camión'?truckComplianceScore(p.trucks||[]):0;
-    scoreParts.completitud=[p.nombre,p.region,p.comuna,p.whatsapp,p.especialidad,p.disponibilidad].filter(Boolean).length;
-    if(targetRegions.length && !targetRegions.includes(p.region)) scoreParts.distancia=-6;
     const score=Math.max(0,Object.values(scoreParts).reduce((a,b)=>a+Number(b||0),0));
-    const confidence=score>=80?'alta':score>=55?'media':'exploratoria';
-    return {...p,match_score:Math.round(Math.min(100,score)),match_confidence:confidence,match_reasons:matchReasons(p,{company,jobs,saved},scoreParts),score_breakdown:scoreParts};
-  }).filter(p=>Number(p.match_score)>=Number(opts.min_score||25)).sort((a,b)=>b.match_score-a.match_score || Number(b.verificado)-Number(a.verificado) || Number(b.reputation_rating||0)-Number(a.reputation_rating||0)).slice(0,Number(opts.limit||15));
+    return {...p,match_score:Math.round(score),match_reasons:matchReasons(p,{company,jobs,saved},scoreParts),score_breakdown:scoreParts};
+  }).sort((a,b)=>b.match_score-a.match_score || Number(b.verificado)-Number(a.verificado) || Number(b.reputation_rating||0)-Number(a.reputation_rating||0)).slice(0,Number(opts.limit||15));
   await trackEvent('smart_match_run',{company_id:companyId,metadata:{job_id:opts.job_id||null,results:ranked.length,top_score:ranked[0]?.match_score||0}});
   return ranked;
 }
@@ -766,7 +737,7 @@ async function analyticsSummary(companyId){ const rows=await query('SELECT type,
 async function favoriteProfile(companyId,profileId){ try{ await query('INSERT INTO favorites(company_id,profile_id) VALUES($1,$2)',[companyId,profileId]); }catch(e){} await trackEvent('favorite_profile',{company_id:companyId,target_type:'profile',target_id:profileId}); return {ok:true}; }
 async function removeFavorite(companyId,profileId){ await query('DELETE FROM favorites WHERE company_id=$1 AND profile_id=$2',[companyId,profileId]); return {ok:true}; }
 async function listFavorites(companyId,company=null){ const rows=await query(`SELECT p.*,f.created_at,COALESCE(AVG(r.rating),0) reputation_rating,COUNT(r.id) reviews_count FROM favorites f JOIN profiles p ON p.id=f.profile_id LEFT JOIN reviews r ON r.target_type='profile' AND r.target_id=p.id WHERE f.company_id=$1 GROUP BY p.id,f.id,f.created_at ORDER BY f.id DESC`,[companyId]); const trucks=await query('SELECT * FROM trucks ORDER BY id'); return rows.map(p=>visibleProfile({...p,trucks:trucks.filter(t=>Number(t.profile_id)===Number(p.id))},company||{id:companyId})); }
-async function addContactHistory(companyId,profileId,channel='whatsapp'){ try{ await query('INSERT INTO contact_history(company_id,profile_id,channel) VALUES($1,$2,$3)',[companyId,profileId,channel]); }catch(e){} await createNotification('profile',profileId,'Una empresa abrió tu contacto','Una empresa verificada abrió tu contacto para comunicarse contigo por WhatsApp.'); await trackEvent('contact_unlocked',{company_id:companyId,target_type:'profile',target_id:profileId,metadata:{channel,source:'quick_whatsapp'}}); return {ok:true}; }
+async function addContactHistory(companyId,profileId,channel='whatsapp'){ try{ await query('INSERT INTO contact_history(company_id,profile_id,channel) VALUES($1,$2,$3)',[companyId,profileId,channel]); }catch(e){} await createNotification('profile',profileId,'Una empresa vio tu contacto','Una empresa registrada abrió tu contacto en ChoferLink.'); await trackEvent('contact_unlocked',{company_id:companyId,target_type:'profile',target_id:profileId,metadata:{channel}}); return {ok:true}; }
 async function listContactHistory(companyId){ return query(`SELECT h.*,p.nombre,p.tipo,p.region,p.comuna,p.licencia,p.whatsapp,p.email FROM contact_history h LEFT JOIN profiles p ON p.id=h.profile_id WHERE h.company_id=$1 ORDER BY h.id DESC`,[companyId]); }
 async function createNotification(userType,userId,title,message){ if(!userId) return null; const r=await query('INSERT INTO notifications(user_type,user_id,title,message) VALUES($1,$2,$3,$4) RETURNING id',[userType,userId,title,message]); return r[0]; }
 async function listNotifications(userType,userId){ return query('SELECT * FROM notifications WHERE user_type=$1 AND user_id=$2 ORDER BY id DESC LIMIT 30',[userType,userId]); }
@@ -851,4 +822,4 @@ async function seedIfEmpty(){
   }
   await ensureRichDemoData();
 }
-module.exports={client,adminCompanyVerificationCandidates,adminAutoVerifyCompanies,createPasswordReset,resetPasswordByToken,adminAuditEvents,fraudSignals,createEmailVerification,verifyEmailToken,getEmailVerificationTarget,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,createPaymentAttempt,getPaymentByFlowToken,updatePaymentFromFlow,activateCompanyPaidFromPayment,listCompanyPayments,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
+module.exports={client,createPasswordReset,resetPasswordByToken,adminAuditEvents,fraudSignals,createEmailVerification,verifyEmailToken,getEmailVerificationTarget,isValidRut,formatRut,normalizeCompanyRut,BUSINESS_RULES,businessPermissions,planActive,canCompanyUnlockContacts,canCompanyPublishJobs,canCompanySaveSearches,canCompanyMoveApplicationTo,companyJobAllowance,activateCompanyPaid,activateCompanyPaidByEmail,migrate,seedIfEmpty,stats,adminSummary,adminListCompanies,adminListProfiles,adminListJobs,adminListApplications,adminUpdateProfileVerification,adminUpdateCompanyVerification,adminDeleteCompany,adminDeleteProfile,adminGetCompanyDocument,adminGetProfileDocument,listPendingDocuments,createProfile,listProfiles,recommendProfilesForCompany,createCompany,listCompanies,loginCompany,getCompanyByToken,getProfileByToken,loginProfile,getProfileDashboard,updateProfile,updateProfileAvailability,changeProfilePassword,deleteProfileAccount,companySubscriptionStatus,createPaymentAttempt,getPaymentByFlowToken,updatePaymentFromFlow,activateCompanyPaidFromPayment,listCompanyPayments,updateCompanyPlan,cancelCompanyPlan,getCompanyPublicById,getCompanyPublicPage,updateCompanyProfile,companyMetrics,saveSearch,listSavedSearches,deleteSavedSearch,createJob,listCompanyJobs,updateCompanyJob,updateCompanyJobStatus,deleteCompanyJob,getJobById,listJobs,applyToJob,listApplicationsForCompany,listApplicationsForProfile,updateApplicationStatus,withdrawApplication,canCompanyReviewProfile,canProfileReviewCompany,createProfileReview,createCompanyReview,listReviews,reputationSummary,trackEvent,analyticsSummary,favoriteProfile,removeFavorite,listFavorites,addContactHistory,listContactHistory,listNotifications,markNotificationsRead,createNotification};
