@@ -241,3 +241,42 @@ async function loadPublicCompanyPage(){
 }
 
 document.addEventListener('DOMContentLoaded',async()=>{fillRegions();bindRoleTabs();bindForms();setupDashboardUX();if($('trucksContainer'))addTruck();applySearchParams();await Promise.all([loadStats(),loadJobs(),refreshSession(),loadCompanyRanking(),loadCompanies(),loadPublicCompanyPage()])});
+
+
+// UX helpers injected
+(function(){
+  if(document.getElementById('global-loading-overlay')) return;
+
+  const overlay=document.createElement('div');
+  overlay.id='global-loading-overlay';
+  overlay.className='loading-overlay';
+  overlay.innerHTML='<div class="loading-card">Cargando...</div>';
+  document.body.appendChild(overlay);
+
+  const toastContainer=document.createElement('div');
+  toastContainer.className='toast-container';
+  document.body.appendChild(toastContainer);
+
+  window.showLoader=function(){ overlay.classList.add('active'); };
+  window.hideLoader=function(){ overlay.classList.remove('active'); };
+
+  window.showToast=function(message,type='success'){
+    const el=document.createElement('div');
+    el.className='toast '+type;
+    el.textContent=message;
+    toastContainer.appendChild(el);
+    setTimeout(()=>el.remove(),3500);
+  };
+
+  document.addEventListener('submit',()=>{
+    showLoader();
+    setTimeout(hideLoader,5000);
+  });
+
+  document.addEventListener('click',(e)=>{
+    const target=e.target.closest('[data-whatsapp]');
+    if(target){
+      showToast('Abriendo WhatsApp...');
+    }
+  });
+})();
